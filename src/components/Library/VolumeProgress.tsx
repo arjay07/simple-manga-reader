@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
 
-interface ProgressMap {
-  [volumeId: number]: { current_page: number; page_count: number | null };
+export interface ProgressMap {
+  [volumeId: number]: { current_page: number; page_count: number | null; updated_at: string };
 }
 
 interface ProgressEntry {
   volume_id: number;
   current_page: number;
   page_count: number | null;
+  updated_at: string;
 }
 
 export function useVolumeProgress() {
@@ -31,6 +32,7 @@ export function useVolumeProgress() {
           map[entry.volume_id] = {
             current_page: entry.current_page,
             page_count: entry.page_count,
+            updated_at: entry.updated_at,
           };
         }
         setProgressMap(map);

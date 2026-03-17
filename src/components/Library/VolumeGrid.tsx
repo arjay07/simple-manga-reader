@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { VolumeThumbnail } from './VolumeThumbnail';
-import { VolumeProgressBar, useVolumeProgress } from './VolumeProgress';
+import { VolumeProgressBar, useVolumeProgress, type ProgressMap } from './VolumeProgress';
 interface Volume {
   id: number;
   series_id: number;
@@ -15,11 +15,14 @@ interface Volume {
 export function VolumeGrid({
   seriesId,
   volumes,
+  progressMap: externalProgressMap,
 }: {
   seriesId: number;
   volumes: Volume[];
+  progressMap?: ProgressMap;
 }) {
-  const progressMap = useVolumeProgress();
+  const internalProgressMap = useVolumeProgress();
+  const progressMap = externalProgressMap ?? internalProgressMap;
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -27,12 +30,34 @@ export function VolumeGrid({
         const progress = progressMap[volume.id];
         const href = `/read/${seriesId}/${volume.id}`;
 
+        const isComplete =
+          progress != null &&
+          volume.page_count != null &&
+          progress.current_page >= volume.page_count;
+
         return (
           <Link
             key={volume.id}
             href={href}
-            className="group rounded-lg border border-border bg-surface p-4 transition-all duration-200 hover:border-accent hover:shadow-md"
+            className="group relative rounded-lg border border-border bg-surface p-4 transition-all duration-200 hover:border-accent hover:shadow-md"
           >
+            {isComplete && (
+              <span className="absolute top-2 right-2 z-[1] flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </span>
+            )}
             <VolumeThumbnail
               seriesId={seriesId}
               volumeId={volume.id}
