@@ -54,6 +54,7 @@ export async function GET(
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'inline',
         'Content-Length': String(stat.size),
+        'Cache-Control': 'private, max-age=86400',
       },
     });
   } catch (err) {
