@@ -1,0 +1,4 @@
+manga.10.0.0.4.sslip.io {
+	tls internal
+	reverse_proxy manga-reader:3000
+}

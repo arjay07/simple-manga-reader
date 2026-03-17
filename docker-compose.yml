@@ -1,8 +1,21 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - manga-reader
+    restart: unless-stopped
+
   manga-reader:
     build: .
-    ports:
-      - "${PORT:-3000}:3000"
+    expose:
+      - "3000"
     volumes:
       - ${MANGA_DIR_HOST:?Set MANGA_DIR_HOST in .env to your manga folder path}:/manga
       - manga-data:/app/data
@@ -16,3 +29,5 @@ services:
 volumes:
   manga-data:
   manga-covers:
+  caddy-data:
+  caddy-config:
