@@ -1,8 +1,7 @@
 import { getDb } from '@/lib/db';
 import { SeriesCard } from '@/components/Library/SeriesCard';
 import { ContinueReading } from '@/components/Library/ContinueReading';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import { RescanButton } from './RescanButton';
+import { HeaderMenu } from '@/components/HeaderMenu';
 
 const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
 
@@ -29,10 +28,7 @@ export default function LibraryPage() {
       <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
           <h1 className="text-2xl font-bold text-foreground">Library</h1>
-          <div className="flex items-center gap-2">
-            <RescanButton />
-            <ThemeToggle />
-          </div>
+          <HeaderMenu />
         </div>
       </header>
 

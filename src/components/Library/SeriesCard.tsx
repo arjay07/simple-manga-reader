@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useAdmin } from '@/components/AdminProvider';
+import { SeriesCardMenu } from './SeriesCardMenu';
 
 interface SeriesCardProps {
   id: number;
@@ -13,7 +15,14 @@ interface SeriesCardProps {
 
 export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProps) {
   const [imgError, setImgError] = useState(false);
+  const [cacheBust, setCacheBust] = useState(0);
+  const { isAdmin } = useAdmin();
   const imageSrc = coverPath ?? `/covers/${id}.jpg`;
+
+  function handleCoverUpdated() {
+    setImgError(false);
+    setCacheBust((prev) => prev + 1);
+  }
 
   return (
     <Link
@@ -23,6 +32,7 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-elevated">
         {!imgError ? (
           <Image
+            key={cacheBust}
             src={imageSrc}
             alt={title}
             fill
@@ -36,6 +46,9 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
               {title}
             </span>
           </div>
+        )}
+        {isAdmin && (
+          <SeriesCardMenu seriesId={id} onCoverUpdated={handleCoverUpdated} />
         )}
       </div>
       <div className="p-2">

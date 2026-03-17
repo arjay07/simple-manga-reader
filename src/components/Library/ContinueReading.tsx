@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
+import { VolumeThumbnail } from './VolumeThumbnail';
 
 interface ProgressEntry {
   volume_id: number;
@@ -44,17 +45,21 @@ export function ContinueReading() {
           <Link
             key={entry.volume_id}
             href={`/read/${entry.series_id}/${entry.volume_id}?profileId=${profile.id}`}
-            className="flex-shrink-0 w-48 rounded-lg bg-surface p-4 transition-colors hover:bg-surface-elevated"
+            className="flex-shrink-0 w-36 rounded-lg bg-surface overflow-hidden transition-colors hover:bg-surface-elevated"
           >
-            <p className="truncate text-sm font-medium text-foreground">
-              {entry.series_title}
-            </p>
-            <p className="mt-1 text-xs text-muted">
-              Volume {entry.volume_number}
-            </p>
-            <span className="mt-3 inline-block text-xs font-medium text-accent">
-              Continue
-            </span>
+            <VolumeThumbnail
+              seriesId={entry.series_id}
+              volumeId={entry.volume_id}
+              volumeNumber={entry.volume_number}
+            />
+            <div className="px-3 pb-3">
+              <p className="truncate text-sm font-medium text-foreground">
+                {entry.series_title}
+              </p>
+              <p className="mt-0.5 text-xs text-muted">
+                Vol. {entry.volume_number}
+              </p>
+            </div>
           </Link>
         ))}
       </div>

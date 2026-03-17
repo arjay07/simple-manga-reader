@@ -2,8 +2,9 @@ import { getDb } from '@/lib/db';
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { HeaderMenu } from '@/components/HeaderMenu';
 import { CoverImage } from './CoverImage';
+import { VolumeThumbnail } from '@/components/Library/VolumeThumbnail';
 
 interface Series {
   id: number;
@@ -64,7 +65,7 @@ export default async function SeriesDetailPage({
             </svg>
             Back to Library
           </Link>
-          <ThemeToggle />
+          <HeaderMenu />
         </div>
       </header>
 
@@ -100,11 +101,11 @@ export default async function SeriesDetailPage({
                   href={`/read/${series.id}/${volume.id}`}
                   className="group rounded-lg border border-border bg-surface p-4 transition-all duration-200 hover:border-accent hover:shadow-md"
                 >
-                  <div className="flex aspect-[2/3] items-center justify-center rounded bg-surface-elevated mb-3">
-                    <span className="text-2xl font-bold text-muted">
-                      {volume.volume_number ?? '#'}
-                    </span>
-                  </div>
+                  <VolumeThumbnail
+                    seriesId={series.id}
+                    volumeId={volume.id}
+                    volumeNumber={volume.volume_number}
+                  />
                   <h3 className="truncate text-sm font-medium text-foreground">
                     {volume.title}
                   </h3>
