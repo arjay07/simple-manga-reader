@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useProfile } from '@/components/ProfileProvider';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { parseReaderSettings, type ReaderSettings } from '@/lib/reader-settings';
@@ -29,6 +30,7 @@ export default function MangaReader({
   fallbackDirection,
 }: MangaReaderProps) {
   const { profile } = useProfile();
+  const router = useRouter();
 
   // Reader settings from profile or props
   const [settings, setSettings] = useState<ReaderSettings>(() =>
@@ -437,6 +439,22 @@ export default function MangaReader({
             <canvas ref={canvasRef} className="max-h-full max-w-full" />
           )}
         </div>
+      )}
+
+      {/* Floating back button — always visible but subtle */}
+      {!barsVisible && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            router.push(`/library/${seriesId}`);
+          }}
+          className="absolute top-4 left-4 z-30 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/40 hover:bg-white/20 hover:text-white/90 backdrop-blur-sm transition-all duration-200 cursor-pointer"
+          aria-label="Back to series"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
       )}
 
       {/* Top bar */}
