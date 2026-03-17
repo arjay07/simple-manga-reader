@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { getDb } from '@/lib/db';
 import MangaReader from '@/components/Reader/MangaReader';
 
@@ -15,14 +16,13 @@ interface VolumeRow {
 
 export default async function ReaderPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ seriesId: string; volumeId: string }>;
-  searchParams: Promise<{ profileId?: string }>;
 }) {
   const { seriesId, volumeId } = await params;
-  const { profileId: profileIdParam } = await searchParams;
-  const profileId = profileIdParam ? Number(profileIdParam) : undefined;
+  const cookieStore = await cookies();
+  const profileIdCookie = cookieStore.get('profileId')?.value;
+  const profileId = profileIdCookie ? Number(profileIdCookie) : undefined;
 
   const db = getDb();
   const volume = db
@@ -39,6 +39,16 @@ export default async function ReaderPage({
     notFound();
   }
 
+  let initialPage = 1;
+  if (profileId) {
+    const progress = db
+      .prepare('SELECT current_page FROM reading_progress WHERE profile_id = ? AND volume_id = ?')
+      .get(profileId, volumeId) as { current_page: number } | undefined;
+    if (progress) {
+      initialPage = progress.current_page;
+    }
+  }
+
   const displayTitle = volume.series_title
     ? `${volume.series_title} - ${volume.title}`
     : volume.title;
@@ -48,7 +58,7 @@ export default async function ReaderPage({
       <MangaReader
         seriesId={seriesId}
         volumeId={volumeId}
-        initialPage={1}
+        initialPage={initialPage}
         profileId={profileId}
         title={displayTitle}
         initialSettings={volume.reader_settings ?? undefined}

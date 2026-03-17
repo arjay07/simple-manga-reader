@@ -8,6 +8,7 @@ import { VolumeThumbnail } from './VolumeThumbnail';
 interface ProgressEntry {
   volume_id: number;
   current_page: number;
+  page_count: number | null;
   volume_title: string;
   volume_number: number;
   series_id: number;
@@ -44,7 +45,7 @@ export function ContinueReading() {
         {entries.map((entry) => (
           <Link
             key={entry.volume_id}
-            href={`/read/${entry.series_id}/${entry.volume_id}?profileId=${profile.id}`}
+            href={`/read/${entry.series_id}/${entry.volume_id}`}
             className="flex-shrink-0 w-36 rounded-lg bg-surface overflow-hidden transition-colors hover:bg-surface-elevated"
           >
             <VolumeThumbnail
@@ -59,6 +60,17 @@ export function ContinueReading() {
               <p className="mt-0.5 text-xs text-muted">
                 Vol. {entry.volume_number}
               </p>
+              {entry.page_count != null && (
+                <div className="mt-1.5">
+                  <div className="h-1 w-full rounded-full bg-border overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-accent transition-all"
+                      style={{ width: `${Math.min((entry.current_page / entry.page_count) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted">{entry.current_page} / {entry.page_count}</p>
+                </div>
+              )}
             </div>
           </Link>
         ))}

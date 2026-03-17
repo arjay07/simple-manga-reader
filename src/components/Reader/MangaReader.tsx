@@ -50,7 +50,18 @@ export default function MangaReader({
   const spreadMode = settings.pageMode === 'spread' && !isVertical;
 
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
-  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [currentPage, setCurrentPage] = useState(() => {
+    if (typeof window === 'undefined' || !profileId) return initialPage;
+    const key = `progress:${profileId}:${volumeId}`;
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const localPage = Number(stored);
+      if (!isNaN(localPage) && localPage >= 1) {
+        return Math.max(initialPage, localPage);
+      }
+    }
+    return initialPage;
+  });
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +224,14 @@ export default function MangaReader({
     setCurrentPage((p) => Math.max(p - pageStep, 1));
   }, [pageStep]);
 
-  // Auto-save reading progress (debounced)
+  // Write current page to localStorage immediately on every page change
+  useEffect(() => {
+    if (!profileId) return;
+    const key = `progress:${profileId}:${volumeId}`;
+    localStorage.setItem(key, String(currentPage));
+  }, [profileId, volumeId, currentPage]);
+
+  // Auto-save reading progress (debounced) and clear localStorage on success
   useEffect(() => {
     if (!profileId) return;
     const timer = setTimeout(() => {
@@ -221,7 +239,12 @@ export default function MangaReader({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profileId, volumeId: Number(volumeId), currentPage }),
-      }).catch((err) => console.error('Failed to save progress:', err));
+      })
+        .then(() => {
+          const key = `progress:${profileId}:${volumeId}`;
+          localStorage.removeItem(key);
+        })
+        .catch((err) => console.error('Failed to save progress:', err));
     }, 1000);
     return () => clearTimeout(timer);
   }, [profileId, volumeId, currentPage]);

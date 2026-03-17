@@ -10,8 +10,22 @@ export async function GET(request: NextRequest) {
 
   try {
     const db = getDb();
+    const volumeId = request.nextUrl.searchParams.get('volumeId');
+
+    if (volumeId) {
+      const progress = db.prepare(`
+        SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title
+        FROM reading_progress rp
+        JOIN volumes v ON rp.volume_id = v.id
+        JOIN series s ON v.series_id = s.id
+        WHERE rp.profile_id = ? AND rp.volume_id = ?
+      `).get(profileId, volumeId);
+
+      return NextResponse.json(progress ?? null);
+    }
+
     const progress = db.prepare(`
-      SELECT rp.*, v.title as volume_title, v.volume_number, v.series_id, s.title as series_title
+      SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title
       FROM reading_progress rp
       JOIN volumes v ON rp.volume_id = v.id
       JOIN series s ON v.series_id = s.id

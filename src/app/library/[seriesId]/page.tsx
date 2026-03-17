@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { HeaderMenu } from '@/components/HeaderMenu';
 import { CoverImage } from './CoverImage';
-import { VolumeThumbnail } from '@/components/Library/VolumeThumbnail';
+import { VolumeGrid } from '@/components/Library/VolumeGrid';
 
 interface Series {
   id: number;
@@ -93,30 +93,7 @@ export default async function SeriesDetailPage({
           {volumes.length === 0 ? (
             <p className="text-muted">No volumes found for this series.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              {volumes.map((volume) => (
-                <Link
-                  key={volume.id}
-                  href={`/read/${series.id}/${volume.id}`}
-                  className="group rounded-lg border border-border bg-surface p-4 transition-all duration-200 hover:border-accent hover:shadow-md"
-                >
-                  <VolumeThumbnail
-                    seriesId={series.id}
-                    volumeId={volume.id}
-                    volumeNumber={volume.volume_number}
-                  />
-                  <h3 className="truncate text-sm font-medium text-foreground">
-                    {volume.title}
-                  </h3>
-                  {volume.volume_number != null && (
-                    <p className="text-xs text-muted">Vol. {volume.volume_number}</p>
-                  )}
-                  {volume.page_count != null && (
-                    <p className="text-xs text-muted-foreground">{volume.page_count} pages</p>
-                  )}
-                </Link>
-              ))}
-            </div>
+            <VolumeGrid seriesId={series.id} volumes={volumes} />
           )}
         </section>
       </main>

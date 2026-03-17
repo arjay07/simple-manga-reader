@@ -50,6 +50,7 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
       })
       .then((data: Profile) => {
         setProfile(data);
+        document.cookie = `profileId=${data.id};path=/;max-age=${60 * 60 * 24 * 365};SameSite=Lax`;
         if (data.theme) {
           applyProfileTheme(data.theme);
         }
@@ -65,6 +66,7 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
   const setActiveProfile = (newProfile: Profile) => {
     setProfile(newProfile);
     localStorage.setItem(STORAGE_KEY, String(newProfile.id));
+    document.cookie = `profileId=${newProfile.id};path=/;max-age=${60 * 60 * 24 * 365};SameSite=Lax`;
     if (newProfile.theme) {
       applyProfileTheme(newProfile.theme);
     }
@@ -73,6 +75,7 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
   const clearProfile = () => {
     setProfile(null);
     localStorage.removeItem(STORAGE_KEY);
+    document.cookie = 'profileId=;path=/;max-age=0';
   };
 
   return (
