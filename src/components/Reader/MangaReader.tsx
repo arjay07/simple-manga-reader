@@ -269,11 +269,13 @@ export default function MangaReader({
       e.preventDefault();
 
       if (dx < 0) {
-        if (effectiveDirection === 'rtl') goNextPage();
-        else goPrevPage();
-      } else {
+        // Swipe left → next page in LTR, prev page in RTL
         if (effectiveDirection === 'rtl') goPrevPage();
         else goNextPage();
+      } else {
+        // Swipe right → prev page in LTR, next page in RTL
+        if (effectiveDirection === 'rtl') goNextPage();
+        else goPrevPage();
       }
     },
     [effectiveDirection, isVertical, goNextPage, goPrevPage]
