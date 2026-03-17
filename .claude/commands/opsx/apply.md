@@ -137,8 +137,8 @@ What would you like to do?
 **Guardrails**
 - Keep going through tasks until done or blocked
 - Always read context files before starting (from the apply instructions output)
-- If task is ambiguous, pause and ask before implementing
-- If implementation reveals issues, pause and suggest artifact updates
+- If task is ambiguous, pause and use the **AskUserQuestion tool** before implementing
+- If implementation reveals issues, pause and use the **AskUserQuestion tool** to suggest artifact updates
 - Keep code changes minimal and scoped to each task
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - use the **AskUserQuestion tool** instead of guessing
