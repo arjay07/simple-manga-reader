@@ -1,0 +1,125 @@
+import { getDb } from '@/lib/db';
+import { notFound } from 'next/navigation';
+import Image from 'next/image';
+import Link from 'next/link';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { CoverImage } from './CoverImage';
+
+interface Series {
+  id: number;
+  title: string;
+  folder_name: string;
+  cover_path: string | null;
+  author: string | null;
+  description: string | null;
+}
+
+interface Volume {
+  id: number;
+  series_id: number;
+  title: string;
+  filename: string;
+  volume_number: number | null;
+  page_count: number | null;
+}
+
+export default async function SeriesDetailPage({
+  params,
+}: {
+  params: Promise<{ seriesId: string }>;
+}) {
+  const { seriesId } = await params;
+  const db = getDb();
+
+  const series = db.prepare('SELECT * FROM series WHERE id = ?').get(Number(seriesId)) as Series | undefined;
+
+  if (!series) {
+    notFound();
+  }
+
+  const volumes = db.prepare(
+    'SELECT * FROM volumes WHERE series_id = ? ORDER BY volume_number'
+  ).all(series.id) as Volume[];
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
+          <Link
+            href="/library"
+            className="flex items-center gap-2 text-sm text-muted transition-colors hover:text-foreground"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            Back to Library
+          </Link>
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-6">
+        <div className="flex flex-col gap-6 md:flex-row">
+          <div className="w-full max-w-[240px] shrink-0">
+            <CoverImage series={series} />
+          </div>
+
+          <div className="flex-1">
+            <h1 className="text-3xl font-bold text-foreground">{series.title}</h1>
+            {series.author && (
+              <p className="mt-1 text-muted">{series.author}</p>
+            )}
+            {series.description && (
+              <p className="mt-3 text-sm text-foreground/80">{series.description}</p>
+            )}
+            <p className="mt-2 text-sm text-muted">
+              {volumes.length} {volumes.length === 1 ? 'volume' : 'volumes'}
+            </p>
+          </div>
+        </div>
+
+        <section className="mt-8">
+          <h2 className="mb-4 text-xl font-semibold text-foreground">Volumes</h2>
+          {volumes.length === 0 ? (
+            <p className="text-muted">No volumes found for this series.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {volumes.map((volume) => (
+                <Link
+                  key={volume.id}
+                  href={`/read/${series.id}/${volume.id}`}
+                  className="group rounded-lg border border-border bg-surface p-4 transition-all duration-200 hover:border-accent hover:shadow-md"
+                >
+                  <div className="flex aspect-[2/3] items-center justify-center rounded bg-surface-elevated mb-3">
+                    <span className="text-2xl font-bold text-muted">
+                      {volume.volume_number ?? '#'}
+                    </span>
+                  </div>
+                  <h3 className="truncate text-sm font-medium text-foreground">
+                    {volume.title}
+                  </h3>
+                  {volume.volume_number != null && (
+                    <p className="text-xs text-muted">Vol. {volume.volume_number}</p>
+                  )}
+                  {volume.page_count != null && (
+                    <p className="text-xs text-muted-foreground">{volume.page_count} pages</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
