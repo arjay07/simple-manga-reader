@@ -2,18 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { parseReaderSettings, type ReaderSettings } from '@/lib/reader-settings';
 import ReaderToolbar from './ReaderToolbar';
 import ReaderBottomBar from './ReaderBottomBar';
 import ReaderSettingsModal from './ReaderSettingsModal';
 import VerticalScrollView from './VerticalScrollView';
-
-GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
 
 interface MangaReaderProps {
   seriesId: string;
@@ -87,8 +81,15 @@ export default function MangaReader({
     setError(null);
 
     const url = `/api/manga/${seriesId}/${volumeId}/pdf`;
-    getDocument(url).promise.then(
-      (doc) => {
+    (async () => {
+      try {
+        const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
+        if (cancelled) return;
+        GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).toString();
+        const doc = await getDocument(url).promise;
         if (cancelled) {
           doc.destroy();
           return;
@@ -96,15 +97,14 @@ export default function MangaReader({
         setPdfDocument(doc);
         setTotalPages(doc.numPages);
         setLoading(false);
-      },
-      (err) => {
+      } catch (err) {
         if (!cancelled) {
           console.error('Failed to load PDF:', err);
           setError('Failed to load PDF');
           setLoading(false);
         }
       }
-    );
+    })();
 
     return () => { cancelled = true; };
   }, [seriesId, volumeId]);
