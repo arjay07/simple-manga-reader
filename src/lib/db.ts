@@ -28,6 +28,7 @@ export function getDb(): Database.Database {
       avatar TEXT,
       reading_direction TEXT DEFAULT 'rtl',
       theme TEXT DEFAULT 'dark',
+      reader_settings TEXT DEFAULT '{}',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -60,6 +61,12 @@ export function getDb(): Database.Database {
       UNIQUE(profile_id, volume_id)
     );
   `);
+
+  // Migration: add reader_settings column if missing (existing DBs)
+  const columns = db.pragma('table_info(profiles)') as { name: string }[];
+  if (!columns.some((c) => c.name === 'reader_settings')) {
+    db.exec(`ALTER TABLE profiles ADD COLUMN reader_settings TEXT DEFAULT '{}'`);
+  }
 
   return db;
 }

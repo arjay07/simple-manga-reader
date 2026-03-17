@@ -4,61 +4,81 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import { parseReaderSettings, type ReaderSettings } from '@/lib/reader-settings';
+import ReaderToolbar from './ReaderToolbar';
+import ReaderBottomBar from './ReaderBottomBar';
+import ReaderSettingsModal from './ReaderSettingsModal';
+import VerticalScrollView from './VerticalScrollView';
 
 GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
 ).toString();
 
-type ReadingDirection = 'rtl' | 'ltr';
-
 interface MangaReaderProps {
   seriesId: string;
   volumeId: string;
   initialPage?: number;
-  readingDirection?: ReadingDirection;
   profileId?: number;
+  title?: string;
+  initialSettings?: string;
+  fallbackDirection?: string;
 }
 
 export default function MangaReader({
   seriesId,
   volumeId,
   initialPage = 1,
-  readingDirection = 'rtl',
   profileId,
+  title = '',
+  initialSettings,
+  fallbackDirection,
 }: MangaReaderProps) {
   const { profile } = useProfile();
-  const effectiveDirection = profile?.reading_direction ?? readingDirection;
+
+  // Reader settings from profile or props
+  const [settings, setSettings] = useState<ReaderSettings>(() =>
+    parseReaderSettings(
+      profile?.reader_settings ?? initialSettings,
+      fallbackDirection ?? profile?.reading_direction
+    )
+  );
+
+  // Update settings when profile loads
+  useEffect(() => {
+    if (profile) {
+      setSettings(parseReaderSettings(profile.reader_settings, profile.reading_direction));
+    }
+  }, [profile]);
+
+  const isVertical = settings.readingDirection === 'vertical';
+  const effectiveDirection = settings.readingDirection;
+  const spreadMode = settings.pageMode === 'spread' && !isVertical;
 
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [spreadMode, setSpreadMode] = useState(false);
   const [isWideViewport, setIsWideViewport] = useState(false);
-  const [overlayVisible, setOverlayVisible] = useState(true);
+  const [barsVisible, setBarsVisible] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef2 = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const renderTaskRef2 = useRef<{ cancel: () => void } | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Detect wide viewport for spread mode
+  // Detect wide viewport
   useEffect(() => {
     const checkWidth = () => setIsWideViewport(window.innerWidth > 1024);
     checkWidth();
     window.addEventListener('resize', checkWidth);
     return () => window.removeEventListener('resize', checkWidth);
   }, []);
-
-  // Disable spread mode when viewport shrinks
-  useEffect(() => {
-    if (!isWideViewport) setSpreadMode(false);
-  }, [isWideViewport]);
 
   // Load PDF
   useEffect(() => {
@@ -86,12 +106,10 @@ export default function MangaReader({
       }
     );
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [seriesId, volumeId]);
 
-  // Render a single page onto a canvas
+  // Render a single page onto a canvas (paginated mode only)
   const renderPage = useCallback(
     async (
       doc: PDFDocumentProxy,
@@ -102,7 +120,6 @@ export default function MangaReader({
     ) => {
       if (pageNum < 1 || pageNum > doc.numPages) return;
 
-      // Cancel any in-progress render
       if (taskRef.current) {
         taskRef.current.cancel();
         taskRef.current = null;
@@ -118,72 +135,59 @@ export default function MangaReader({
       const viewport = page.getViewport({ scale: 1 });
       const scaleW = containerWidth / viewport.width;
       const scaleH = containerHeight / viewport.height;
-      // Fit: use the smaller scale so the entire page is visible
       const scale = Math.min(scaleW, scaleH);
       const scaledViewport = page.getViewport({ scale });
 
       canvas.width = scaledViewport.width;
       canvas.height = scaledViewport.height;
 
-      const renderTask = page.render({
-        canvas,
-        viewport: scaledViewport,
-      });
+      const renderTask = page.render({ canvas, viewport: scaledViewport });
       taskRef.current = { cancel: () => renderTask.cancel() };
 
       try {
         await renderTask.promise;
       } catch {
-        // render cancelled, ignore
+        // render cancelled
       }
     },
     []
   );
 
-  // Render current page(s) whenever relevant state changes
+  // Render current page(s) in paginated mode
   useEffect(() => {
-    if (!pdfDocument || !canvasRef.current) return;
+    if (isVertical || !pdfDocument || !canvasRef.current) return;
 
     if (spreadMode && canvasRef2.current) {
-      const leftPage =
-        effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
-      const rightPage =
-        effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
-
+      const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
+      const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
       const canvas1 = canvasRef.current;
       const canvas2 = canvasRef2.current;
 
-      // In spread mode each canvas gets half width
       if (leftPage >= 1 && leftPage <= pdfDocument.numPages) {
         renderPage(pdfDocument, leftPage, canvas1, renderTaskRef, 0.5);
       } else {
-        const ctx = canvas1.getContext('2d');
         canvas1.width = 0;
         canvas1.height = 0;
-        ctx?.clearRect(0, 0, 0, 0);
       }
       if (rightPage >= 1 && rightPage <= pdfDocument.numPages) {
         renderPage(pdfDocument, rightPage, canvas2, renderTaskRef2, 0.5);
       } else {
-        const ctx = canvas2.getContext('2d');
         canvas2.width = 0;
         canvas2.height = 0;
-        ctx?.clearRect(0, 0, 0, 0);
       }
     } else {
       renderPage(pdfDocument, currentPage, canvasRef.current, renderTaskRef);
     }
-  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, renderPage]);
+  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage]);
 
-  // Re-render on resize
+  // Re-render paginated on resize
   useEffect(() => {
+    if (isVertical) return;
     const onResize = () => {
       if (!pdfDocument || !canvasRef.current) return;
       if (spreadMode && canvasRef2.current) {
-        const leftPage =
-          effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
-        const rightPage =
-          effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
+        const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
+        const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
         if (leftPage >= 1 && leftPage <= pdfDocument.numPages) {
           renderPage(pdfDocument, leftPage, canvasRef.current, renderTaskRef, 0.5);
         }
@@ -196,7 +200,7 @@ export default function MangaReader({
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, renderPage]);
+  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage]);
 
   // Navigation helpers
   const pageStep = spreadMode ? 2 : 1;
@@ -208,18 +212,6 @@ export default function MangaReader({
   const goPrevPage = useCallback(() => {
     setCurrentPage((p) => Math.max(p - pageStep, 1));
   }, [pageStep]);
-
-  // Overlay auto-hide
-  const showOverlay = useCallback(() => {
-    setOverlayVisible(true);
-    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
-    overlayTimerRef.current = setTimeout(() => setOverlayVisible(false), 3000);
-  }, []);
-
-  // Show overlay on page change
-  useEffect(() => {
-    showOverlay();
-  }, [currentPage, showOverlay]);
 
   // Auto-save reading progress (debounced)
   useEffect(() => {
@@ -234,15 +226,16 @@ export default function MangaReader({
     return () => clearTimeout(timer);
   }, [profileId, volumeId, currentPage]);
 
-  // Hide overlay after initial display
-  useEffect(() => {
-    const timer = setTimeout(() => setOverlayVisible(false), 3000);
-    return () => clearTimeout(timer);
-  }, []);
-
   // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (settingsModalOpen) return;
+
+      if (isVertical) {
+        // In vertical mode, let browser handle up/down scrolling natively
+        return;
+      }
+
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         if (effectiveDirection === 'rtl') goNextPage();
@@ -255,9 +248,9 @@ export default function MangaReader({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [effectiveDirection, goNextPage, goPrevPage]);
+  }, [effectiveDirection, isVertical, goNextPage, goPrevPage, settingsModalOpen]);
 
-  // Touch swipe handling
+  // Touch swipe handling (disabled in vertical mode)
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY };
@@ -265,33 +258,80 @@ export default function MangaReader({
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
-      if (!touchStartRef.current) return;
+      if (!touchStartRef.current || isVertical) return;
       const touch = e.changedTouches[0];
       const dx = touch.clientX - touchStartRef.current.x;
       const dy = touch.clientY - touchStartRef.current.y;
       touchStartRef.current = null;
 
-      // Only trigger if horizontal swipe is dominant and exceeds threshold
       if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
 
       e.preventDefault();
 
       if (dx < 0) {
-        // Swiped left
         if (effectiveDirection === 'rtl') goNextPage();
         else goPrevPage();
       } else {
-        // Swiped right
         if (effectiveDirection === 'rtl') goPrevPage();
         else goNextPage();
       }
     },
-    [effectiveDirection, goNextPage, goPrevPage]
+    [effectiveDirection, isVertical, goNextPage, goPrevPage]
   );
 
-  const handleContainerClick = useCallback(() => {
-    showOverlay();
-  }, [showOverlay]);
+  // Tap handler with tap-to-turn zone detection
+  const handleContainerClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (settingsModalOpen) return;
+
+      if (settings.tapToTurn && !isVertical) {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const width = rect.width;
+        const ratio = x / width;
+
+        // Left 25%, center 50%, right 25%
+        if (ratio < 0.25) {
+          // Left zone
+          if (effectiveDirection === 'rtl') goNextPage();
+          else goPrevPage();
+          return;
+        } else if (ratio > 0.75) {
+          // Right zone
+          if (effectiveDirection === 'rtl') goPrevPage();
+          else goNextPage();
+          return;
+        }
+        // Center zone — fall through to toggle bars
+      }
+
+      setBarsVisible((v) => !v);
+    },
+    [settings.tapToTurn, isVertical, effectiveDirection, goNextPage, goPrevPage, settingsModalOpen]
+  );
+
+  // Settings change handler with debounced save
+  const handleSettingsChange = useCallback(
+    (newSettings: ReaderSettings) => {
+      setSettings(newSettings);
+
+      if (!profileId) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        fetch(`/api/profiles/${profileId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reader_settings: newSettings }),
+        }).catch((err) => console.error('Failed to save settings:', err));
+      }, 500);
+    },
+    [profileId]
+  );
+
+  // Handle page change from vertical scroll view
+  const handleVerticalPageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
 
   if (error) {
     return (
@@ -321,42 +361,52 @@ export default function MangaReader({
       onClick={handleContainerClick}
       tabIndex={0}
     >
-      {/* Canvas area */}
-      <div className="flex items-center justify-center w-full h-full">
-        {spreadMode ? (
-          <div className="flex items-center justify-center h-full gap-0">
-            <canvas ref={canvasRef} className="max-h-full" />
-            <canvas ref={canvasRef2} className="max-h-full" />
-          </div>
-        ) : (
-          <canvas ref={canvasRef} className="max-h-full max-w-full" />
-        )}
-      </div>
-
-      {/* Spread mode toggle (desktop only) */}
-      {isWideViewport && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setSpreadMode((v) => !v);
-          }}
-          className="absolute top-4 right-4 z-20 px-3 py-1.5 bg-black/60 hover:bg-black/80 text-white text-sm rounded-md backdrop-blur-sm transition-colors cursor-pointer"
-          title={spreadMode ? 'Single page mode' : 'Two-page spread'}
-        >
-          {spreadMode ? '1 Page' : '2 Pages'}
-        </button>
+      {/* Reading area */}
+      {isVertical && pdfDocument ? (
+        <VerticalScrollView
+          pdfDocument={pdfDocument}
+          totalPages={totalPages}
+          onPageChange={handleVerticalPageChange}
+        />
+      ) : (
+        <div className="flex items-center justify-center w-full h-full">
+          {spreadMode ? (
+            <div className="flex items-center justify-center h-full gap-0">
+              <canvas ref={canvasRef} className="max-h-full" />
+              <canvas ref={canvasRef2} className="max-h-full" />
+            </div>
+          ) : (
+            <canvas ref={canvasRef} className="max-h-full max-w-full" />
+          )}
+        </div>
       )}
 
-      {/* Page indicator overlay */}
-      <div
-        className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-4 py-2 bg-black/70 text-white text-sm rounded-lg backdrop-blur-sm transition-opacity duration-300 ${
-          overlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        {spreadMode && currentPage + 1 <= totalPages
-          ? `Pages ${currentPage}-${currentPage + 1} of ${totalPages}`
-          : `Page ${currentPage} of ${totalPages}`}
-      </div>
+      {/* Top bar */}
+      <ReaderToolbar
+        visible={barsVisible}
+        seriesId={seriesId}
+        title={title}
+        onSettingsOpen={() => {
+          setSettingsModalOpen(true);
+        }}
+      />
+
+      {/* Bottom bar */}
+      <ReaderBottomBar
+        visible={barsVisible}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        spreadMode={spreadMode}
+      />
+
+      {/* Settings modal */}
+      <ReaderSettingsModal
+        open={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+        isWideViewport={isWideViewport}
+      />
     </div>
   );
 }

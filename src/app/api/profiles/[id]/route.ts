@@ -37,7 +37,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, avatar, reading_direction, theme } = body;
+    const { name, avatar, reading_direction, theme, reader_settings } = body;
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -46,6 +46,10 @@ export async function PUT(
     if (avatar !== undefined) { fields.push('avatar = ?'); values.push(avatar); }
     if (reading_direction !== undefined) { fields.push('reading_direction = ?'); values.push(reading_direction); }
     if (theme !== undefined) { fields.push('theme = ?'); values.push(theme); }
+    if (reader_settings !== undefined) {
+      fields.push('reader_settings = ?');
+      values.push(typeof reader_settings === 'string' ? reader_settings : JSON.stringify(reader_settings));
+    }
 
     if (fields.length > 0) {
       values.push(id);

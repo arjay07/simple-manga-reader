@@ -8,7 +8,9 @@ interface VolumeRow {
   title: string;
   filename: string;
   volume_number: number | null;
+  series_title: string;
   reading_direction: string | null;
+  reader_settings: string | null;
 }
 
 export default async function ReaderPage({
@@ -25,20 +27,21 @@ export default async function ReaderPage({
   const db = getDb();
   const volume = db
     .prepare(
-      `SELECT v.*, p.reading_direction
+      `SELECT v.*, s.title as series_title, p.reading_direction, p.reader_settings
        FROM volumes v
-       LEFT JOIN profiles p ON p.id = 1
+       JOIN series s ON s.id = v.series_id
+       LEFT JOIN profiles p ON p.id = ?
        WHERE v.series_id = ? AND v.id = ?`
     )
-    .get(seriesId, volumeId) as VolumeRow | undefined;
+    .get(profileId ?? 1, seriesId, volumeId) as VolumeRow | undefined;
 
   if (!volume) {
     notFound();
   }
 
-  const direction = (volume.reading_direction === 'ltr' ? 'ltr' : 'rtl') as
-    | 'rtl'
-    | 'ltr';
+  const displayTitle = volume.series_title
+    ? `${volume.series_title} - ${volume.title}`
+    : volume.title;
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -46,8 +49,10 @@ export default async function ReaderPage({
         seriesId={seriesId}
         volumeId={volumeId}
         initialPage={1}
-        readingDirection={direction}
         profileId={profileId}
+        title={displayTitle}
+        initialSettings={volume.reader_settings ?? undefined}
+        fallbackDirection={volume.reading_direction ?? undefined}
       />
     </div>
   );

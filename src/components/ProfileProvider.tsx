@@ -8,6 +8,7 @@ interface Profile {
   avatar: string | null;
   reading_direction: 'rtl' | 'ltr';
   theme: 'dark' | 'light';
+  reader_settings: string;
 }
 
 interface ProfileContextType {
