@@ -17,6 +17,10 @@ Enter explore mode. Think deeply. Visualize freely. Follow the conversation wher
 
 ---
 
+## Asking Questions
+
+When you need to ask the user questions (clarifying, choosing directions, confirming decisions), always use the **AskUserQuestion tool**. Do not just output questions as text — use the tool so the user gets a proper interactive prompt.
+
 ## The Stance
 
 - **Curious, not prescriptive** - Ask questions that emerge naturally, don't follow a script
