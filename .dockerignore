@@ -13,3 +13,7 @@ coverage
 .pnpm-debug.log*
 npm-debug.log*
 openspec/
+gdrive_downloads/
+.venv/
+__pycache__/
+public/covers/

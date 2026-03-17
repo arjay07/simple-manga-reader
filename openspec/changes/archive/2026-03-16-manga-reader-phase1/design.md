@@ -40,7 +40,7 @@ No existing infrastructure — this is the first service being set up on this ma
 **Rationale**: Zero config, no external process, synchronous API is simpler for a single-server app. Direct SQL gives full control without ORM overhead. We'll use Drizzle only if query complexity grows.
 
 ### 4. Filesystem-based manga storage
-**Choice**: Organized folder structure at `/home/arjay/manga/` with convention: `<Series>/<Volume>.pdf`
+**Choice**: Organized folder structure at `~/manga/` with convention: `<Series>/<Volume>.pdf`
 **Alternatives**: Database-managed blob storage, content-addressable storage
 **Rationale**: User can browse/manage files directly. Simple `fs.readdir` scanning. Metadata stored in SQLite, files stay on disk in a human-readable structure.
 
@@ -57,7 +57,7 @@ No existing infrastructure — this is the first service being set up on this ma
 ## Architecture
 
 ```
-/home/arjay/projects/manga-reader/     (project root)
+/path/to/manga-reader/     (project root)
 ├── src/
 │   ├── app/                            (Next.js App Router)
 │   │   ├── page.tsx                    (profile selector)
@@ -82,7 +82,7 @@ No existing infrastructure — this is the first service being set up on this ma
 └── public/
     └── covers/                         (extracted/uploaded cover images)
 
-/home/arjay/manga/                      (manga storage, outside project)
+~/manga/                      (manga storage, outside project)
 ├── Dragon Ball/
 │   ├── DRAGON BALL VOLUME 01.pdf
 │   └── ...
@@ -140,7 +140,7 @@ CREATE TABLE reading_progress (
 
 ## Migration Plan
 
-1. Create `/home/arjay/manga/Dragon Ball/` directory
+1. Create `~/manga/Dragon Ball/` directory
 2. Move existing PDFs from `gdrive_downloads/` to the new location
 3. Run initial folder scan to populate the database
 4. Clean up partial download file (`.part` file in gdrive_downloads)

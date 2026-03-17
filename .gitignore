@@ -41,6 +41,7 @@ yarn-error.log*
 
 # app data
 /data/
+/public/covers/
 
 # python
 .venv/

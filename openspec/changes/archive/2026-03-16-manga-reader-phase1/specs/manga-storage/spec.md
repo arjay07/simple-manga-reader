@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Filesystem-based storage
-The system SHALL use `/home/arjay/manga/` as the root directory for manga storage, with one subfolder per series.
+The system SHALL use `~/manga/` as the root directory for manga storage, with one subfolder per series.
 
 #### Scenario: Expected folder structure
 - **WHEN** the system scans for manga
-- **THEN** it SHALL expect the structure: `/home/arjay/manga/<Series Name>/<Volume>.pdf`
+- **THEN** it SHALL expect the structure: `~/manga/<Series Name>/<Volume>.pdf`
 
 #### Scenario: Storage path configuration
 - **WHEN** the application starts
-- **THEN** the manga storage path SHALL be configurable via a `MANGA_DIR` environment variable, defaulting to `/home/arjay/manga/`
+- **THEN** the manga storage path SHALL be configurable via a `MANGA_DIR` environment variable, defaulting to `~/manga/`
 
 ### Requirement: SQLite metadata database
 The system SHALL store all metadata, profiles, and reading progress in a SQLite database.

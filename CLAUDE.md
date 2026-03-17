@@ -15,7 +15,7 @@ No test framework is configured.
 
 ## Architecture
 
-Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. Manga PDFs live on the filesystem at `MANGA_DIR` (default `/home/arjay/manga`), organized as `<Series>/<Volume>.pdf`. Metadata and reading progress are stored in SQLite (`data/manga-reader.db`).
+Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. Manga PDFs live on the filesystem at `MANGA_DIR` (default `~/manga`), organized as `<Series>/<Volume>.pdf`. Metadata and reading progress are stored in SQLite (`data/manga-reader.db`).
 
 **User flow:** Profile selector (`/`) → Library grid (`/library`) → Series detail (`/library/[seriesId]`) → PDF reader (`/read/[seriesId]/[volumeId]`).
 
@@ -48,5 +48,5 @@ Dual-layer persistence: localStorage caches progress immediately (`progress:{pro
 
 ### Environment variables
 
-- `MANGA_DIR` — path to manga storage directory (default: `/home/arjay/manga`)
+- `MANGA_DIR` — path to manga storage directory (default: `~/manga`)
 - `DATABASE_PATH` — SQLite database path relative to project root (default: `data/manga-reader.db`)

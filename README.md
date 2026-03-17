@@ -85,7 +85,7 @@ npm run build
 npm run start
 ```
 
-Set `MANGA_DIR` to point to your manga folder (defaults to `/home/arjay/manga`).
+Set `MANGA_DIR` to point to your manga folder (defaults to `~/manga`).
 
 ```bash
 MANGA_DIR=/path/to/manga npm run start

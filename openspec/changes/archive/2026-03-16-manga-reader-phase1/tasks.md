@@ -3,7 +3,7 @@
 - [x] 1.1 Initialize Next.js project with TypeScript, Tailwind CSS, and App Router
 - [x] 1.2 Install dependencies: pdfjs-dist, better-sqlite3, @types/better-sqlite3
 - [x] 1.3 Configure environment variables (MANGA_DIR, DATABASE_PATH) with .env.local
-- [x] 1.4 Create `/home/arjay/manga/Dragon Ball/` directory and move PDFs from gdrive_downloads
+- [x] 1.4 Create `~/manga/Dragon Ball/` directory and move PDFs from gdrive_downloads
 - [x] 1.5 Set up project folder structure (src/app, src/components, src/lib, data/, public/covers/)
 
 ## 2. Database & Storage Layer

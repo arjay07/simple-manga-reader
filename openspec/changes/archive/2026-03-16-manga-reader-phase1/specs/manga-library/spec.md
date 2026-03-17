@@ -42,7 +42,7 @@ The system SHALL scan the manga storage directory to detect series and volumes.
 
 #### Scenario: Initial scan
 - **WHEN** the application starts
-- **THEN** the system SHALL scan `/home/arjay/manga/` for series folders and PDF files within them, populating the database
+- **THEN** the system SHALL scan `~/manga/` for series folders and PDF files within them, populating the database
 
 #### Scenario: New series detected
 - **WHEN** a new folder is found in the manga storage directory during a scan

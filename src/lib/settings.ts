@@ -1,3 +1,5 @@
+import path from 'path';
+import os from 'os';
 import { getDb } from './db';
 
 export function getSetting(key: string): string | undefined {
@@ -12,5 +14,5 @@ export function setSetting(key: string, value: string): void {
 }
 
 export function getMangaDir(): string {
-  return getSetting('manga_dir') ?? process.env.MANGA_DIR ?? '/home/arjay/manga';
+  return getSetting('manga_dir') ?? process.env.MANGA_DIR ?? path.join(os.homedir(), 'manga');
 }
