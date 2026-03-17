@@ -9,6 +9,7 @@ import ReaderToolbar from './ReaderToolbar';
 import ReaderBottomBar from './ReaderBottomBar';
 import ReaderSettingsModal from './ReaderSettingsModal';
 import VerticalScrollView from './VerticalScrollView';
+import EndOfVolumeOverlay from './EndOfVolumeOverlay';
 
 interface MangaReaderProps {
   seriesId: string;
@@ -18,6 +19,10 @@ interface MangaReaderProps {
   title?: string;
   initialSettings?: string;
   fallbackDirection?: string;
+  nextVolumeId?: string;
+  nextVolumeTitle?: string;
+  prevVolumeId?: string;
+  prevVolumeTitle?: string;
 }
 
 export default function MangaReader({
@@ -28,6 +33,10 @@ export default function MangaReader({
   title = '',
   initialSettings,
   fallbackDirection,
+  nextVolumeId,
+  nextVolumeTitle,
+  prevVolumeId,
+  prevVolumeTitle,
 }: MangaReaderProps) {
   const { profile } = useProfile();
   const router = useRouter();
@@ -71,6 +80,7 @@ export default function MangaReader({
   const [barsVisible, setBarsVisible] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [arrowsVisible, setArrowsVisible] = useState(false);
+  const [volumeOverlay, setVolumeOverlay] = useState<'end' | 'start' | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef2 = useRef<HTMLCanvasElement>(null);
@@ -221,12 +231,24 @@ export default function MangaReader({
   const pageStep = spreadMode ? 2 : 1;
 
   const goNextPage = useCallback(() => {
-    setCurrentPage((p) => Math.min(p + pageStep, totalPages));
+    setCurrentPage((p) => {
+      if (p >= totalPages) {
+        setVolumeOverlay('end');
+        return p;
+      }
+      return Math.min(p + pageStep, totalPages);
+    });
   }, [pageStep, totalPages]);
 
   const goPrevPage = useCallback(() => {
-    setCurrentPage((p) => Math.max(p - pageStep, 1));
-  }, [pageStep]);
+    setCurrentPage((p) => {
+      if (p <= 1 && prevVolumeId) {
+        setVolumeOverlay('start');
+        return p;
+      }
+      return Math.max(p - pageStep, 1);
+    });
+  }, [pageStep, prevVolumeId]);
 
   // Write current page to localStorage immediately on every page change
   useEffect(() => {
@@ -505,6 +527,19 @@ export default function MangaReader({
             </svg>
           </button>
         </>
+      )}
+
+      {/* End/start of volume overlay */}
+      {volumeOverlay && (
+        <EndOfVolumeOverlay
+          seriesId={seriesId}
+          direction={volumeOverlay}
+          nextVolumeId={nextVolumeId}
+          nextVolumeTitle={nextVolumeTitle}
+          prevVolumeId={prevVolumeId}
+          prevVolumeTitle={prevVolumeTitle}
+          onDismiss={() => setVolumeOverlay(null)}
+        />
       )}
 
       {/* Settings modal */}

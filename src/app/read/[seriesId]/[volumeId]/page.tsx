@@ -39,6 +39,23 @@ export default async function ReaderPage({
     notFound();
   }
 
+  // Query adjacent volumes for next/prev navigation
+  const nextVolume = volume.volume_number != null
+    ? (db.prepare(
+        `SELECT id, title, volume_number FROM volumes
+         WHERE series_id = ? AND volume_number > ?
+         ORDER BY volume_number LIMIT 1`
+      ).get(seriesId, volume.volume_number) as { id: number; title: string; volume_number: number } | undefined)
+    : undefined;
+
+  const prevVolume = volume.volume_number != null
+    ? (db.prepare(
+        `SELECT id, title, volume_number FROM volumes
+         WHERE series_id = ? AND volume_number < ?
+         ORDER BY volume_number DESC LIMIT 1`
+      ).get(seriesId, volume.volume_number) as { id: number; title: string; volume_number: number } | undefined)
+    : undefined;
+
   let initialPage = 1;
   if (profileId) {
     const progress = db
@@ -63,6 +80,10 @@ export default async function ReaderPage({
         title={displayTitle}
         initialSettings={volume.reader_settings ?? undefined}
         fallbackDirection={volume.reading_direction ?? undefined}
+        nextVolumeId={nextVolume ? String(nextVolume.id) : undefined}
+        nextVolumeTitle={nextVolume?.title}
+        prevVolumeId={prevVolume ? String(prevVolume.id) : undefined}
+        prevVolumeTitle={prevVolume?.title}
       />
     </div>
   );
