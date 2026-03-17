@@ -68,6 +68,7 @@ export default function MangaReader({
   const [isWideViewport, setIsWideViewport] = useState(false);
   const [barsVisible, setBarsVisible] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [arrowsVisible, setArrowsVisible] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef2 = useRef<HTMLCanvasElement>(null);
@@ -76,6 +77,7 @@ export default function MangaReader({
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const renderTaskRef2 = useRef<{ cancel: () => void } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arrowHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Detect wide viewport
   useEffect(() => {
@@ -353,6 +355,36 @@ export default function MangaReader({
     [profileId]
   );
 
+  // Show arrow buttons on mouse move (desktop, paginated mode only)
+  const handleMouseMove = useCallback(() => {
+    if (isVertical) return;
+    setArrowsVisible(true);
+    if (arrowHideTimerRef.current) clearTimeout(arrowHideTimerRef.current);
+    arrowHideTimerRef.current = setTimeout(() => setArrowsVisible(false), 2000);
+  }, [isVertical]);
+
+  // Clean up arrow hide timer
+  useEffect(() => {
+    return () => {
+      if (arrowHideTimerRef.current) clearTimeout(arrowHideTimerRef.current);
+    };
+  }, []);
+
+  // Arrow button click handlers (stop propagation to avoid tap-to-turn)
+  const handleArrowClick = useCallback(
+    (direction: 'left' | 'right', e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (direction === 'left') {
+        if (effectiveDirection === 'rtl') goNextPage();
+        else goPrevPage();
+      } else {
+        if (effectiveDirection === 'rtl') goPrevPage();
+        else goNextPage();
+      }
+    },
+    [effectiveDirection, goNextPage, goPrevPage]
+  );
+
   // Handle page change from vertical scroll view
   const handleVerticalPageChange = useCallback((page: number) => {
     setCurrentPage(page);
@@ -384,6 +416,7 @@ export default function MangaReader({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onClick={handleContainerClick}
+      onMouseMove={handleMouseMove}
       tabIndex={0}
     >
       {/* Reading area */}
@@ -423,6 +456,34 @@ export default function MangaReader({
         totalPages={totalPages}
         spreadMode={spreadMode}
       />
+
+      {/* Desktop arrow navigation buttons */}
+      {!isVertical && isWideViewport && (
+        <>
+          <button
+            onClick={(e) => handleArrowClick('left', e)}
+            className={`absolute left-4 top-1/2 -translate-y-1/2 z-30 w-12 h-20 flex items-center justify-center rounded-lg bg-black/40 hover:bg-black/60 text-white/70 hover:text-white backdrop-blur-sm transition-opacity duration-300 cursor-pointer ${
+              arrowsVisible && (effectiveDirection === 'rtl' ? currentPage < totalPages : currentPage > 1) ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            aria-label={effectiveDirection === 'rtl' ? 'Next page' : 'Previous page'}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => handleArrowClick('right', e)}
+            className={`absolute right-4 top-1/2 -translate-y-1/2 z-30 w-12 h-20 flex items-center justify-center rounded-lg bg-black/40 hover:bg-black/60 text-white/70 hover:text-white backdrop-blur-sm transition-opacity duration-300 cursor-pointer ${
+              arrowsVisible && (effectiveDirection === 'rtl' ? currentPage > 1 : currentPage < totalPages) ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            aria-label={effectiveDirection === 'rtl' ? 'Previous page' : 'Next page'}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </button>
+        </>
+      )}
 
       {/* Settings modal */}
       <ReaderSettingsModal
