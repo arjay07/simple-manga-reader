@@ -32,7 +32,19 @@ Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. 
 
 ### Providers (nested in layout.tsx)
 
-`ThemeProvider` → `ProfileProvider` → children. Both are client components using React context with localStorage persistence.
+`ThemeProvider` → `AdminProvider` → `ProfileProvider` → children. All are client components using React context with localStorage persistence. `AdminProvider` gates destructive UI actions (delete series, rescan).
+
+### API routes
+
+All under `src/app/api/`. Key endpoints:
+- `GET /api/manga` — list all series; `GET /api/manga/[seriesId]` — series detail with volumes
+- `GET /api/manga/[seriesId]/[volumeId]/pdf` — stream PDF file for reader
+- `GET|POST /api/progress?profileId=&volumeId=` — read/write reading progress
+- `GET|POST|DELETE /api/profiles` — profile CRUD
+
+### Reading progress
+
+Dual-layer persistence: localStorage caches progress immediately (`progress:{profileId}:{volumeId}`), then a debounced POST to `/api/progress` writes to SQLite and clears the localStorage entry on success.
 
 ### Environment variables
 
