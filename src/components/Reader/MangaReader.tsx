@@ -385,8 +385,8 @@ export default function MangaReader({
     [effectiveDirection, goNextPage, goPrevPage]
   );
 
-  // Handle page change from vertical scroll view
-  const handleVerticalPageChange = useCallback((page: number) => {
+  // Handle page change from any source (vertical scroll, scrub bar, dropdown)
+  const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
   }, []);
 
@@ -424,7 +424,7 @@ export default function MangaReader({
         <VerticalScrollView
           pdfDocument={pdfDocument}
           totalPages={totalPages}
-          onPageChange={handleVerticalPageChange}
+          onPageChange={handlePageChange}
         />
       ) : (
         <div className="flex items-center justify-center w-full h-full">
@@ -455,6 +455,10 @@ export default function MangaReader({
         currentPage={currentPage}
         totalPages={totalPages}
         spreadMode={spreadMode}
+        pdfDocument={pdfDocument}
+        onPageChange={handlePageChange}
+        isVertical={isVertical}
+        direction={effectiveDirection === 'rtl' ? 'rtl' : 'ltr'}
       />
 
       {/* Desktop arrow navigation buttons */}
