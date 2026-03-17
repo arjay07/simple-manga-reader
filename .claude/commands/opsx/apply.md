@@ -70,9 +70,9 @@ Implement tasks from an OpenSpec change.
    - Continue to next task
 
    **Pause if:**
-   - Task is unclear → ask for clarification
-   - Implementation reveals a design issue → suggest updating artifacts
-   - Error or blocker encountered → report and wait for guidance
+   - Task is unclear → use the **AskUserQuestion tool** to ask for clarification
+   - Implementation reveals a design issue → use the **AskUserQuestion tool** to suggest updating artifacts and ask how to proceed
+   - Error or blocker encountered → use the **AskUserQuestion tool** to report the issue and ask for guidance
    - User interrupts
 
 7. **On completion or pause, show status**
@@ -141,7 +141,7 @@ What would you like to do?
 - If implementation reveals issues, pause and suggest artifact updates
 - Keep code changes minimal and scoped to each task
 - Update task checkbox immediately after completing each task
-- Pause on errors, blockers, or unclear requirements - don't guess
+- Pause on errors, blockers, or unclear requirements - use the **AskUserQuestion tool** instead of guessing
 - Use contextFiles from CLI output, don't assume specific file names
 
 **Fluid Workflow Integration**

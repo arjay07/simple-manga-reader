@@ -31,8 +31,8 @@ export async function GET(
       return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
     }
 
-    // Check for cached thumbnail
-    const cachedPath = getVolumeThumbnailPath(volume.folder_name, volumeId);
+    // Check for cached thumbnail (keyed by filename, not DB id)
+    const cachedPath = getVolumeThumbnailPath(volume.folder_name, volume.filename);
 
     if (fs.existsSync(cachedPath)) {
       const imageBuffer = fs.readFileSync(cachedPath);

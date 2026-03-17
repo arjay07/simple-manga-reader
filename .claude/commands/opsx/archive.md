@@ -30,7 +30,7 @@ Archive a completed change in the experimental workflow.
 
    **If any artifacts are not `done`:**
    - Display warning listing incomplete artifacts
-   - Prompt user for confirmation to continue
+   - Use the **AskUserQuestion tool** to prompt user for confirmation to continue
    - Proceed if user confirms
 
 3. **Check task completion status**

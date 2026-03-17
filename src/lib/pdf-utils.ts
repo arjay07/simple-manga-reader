@@ -61,7 +61,11 @@ export function getSeriesCoverPath(folderName: string): string {
 
 /**
  * Get the filesystem path for a volume thumbnail.
+ * Uses a sanitized version of the PDF filename as the cache key so that
+ * thumbnails survive database ID changes (e.g. after a DB reset + rescan).
  */
-export function getVolumeThumbnailPath(folderName: string, volumeId: number | string): string {
-  return path.join(getMangaDir(), folderName, '.covers', `vol-${volumeId}.jpg`);
+export function getVolumeThumbnailPath(folderName: string, volumeFilename: string): string {
+  // Strip the .pdf extension and replace non-alphanumeric chars for a safe filename
+  const baseName = volumeFilename.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(getMangaDir(), folderName, '.covers', `vol-${baseName}.jpg`);
 }
