@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '@/lib/db';
-import { isPdftoppmAvailable, extractFirstPage, ensureVolumeCoverDir } from '@/lib/pdf-utils';
+import { isPdftoppmAvailable, extractFirstPage, ensureCoversDir, getVolumeThumbnailPath } from '@/lib/pdf-utils';
 
 const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
 
@@ -33,8 +33,7 @@ export async function GET(
     }
 
     // Check for cached thumbnail
-    const coverDir = ensureVolumeCoverDir();
-    const cachedPath = path.join(coverDir, `${volumeId}.jpg`);
+    const cachedPath = getVolumeThumbnailPath(volume.folder_name, volumeId);
 
     if (fs.existsSync(cachedPath)) {
       const imageBuffer = fs.readFileSync(cachedPath);
@@ -59,6 +58,7 @@ export async function GET(
       return NextResponse.json({ error: 'Volume PDF not found on disk' }, { status: 404 });
     }
 
+    ensureCoversDir(volume.folder_name);
     extractFirstPage(pdfPath, cachedPath);
 
     const imageBuffer = fs.readFileSync(cachedPath);

@@ -1,22 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
-import path from 'path';
 import { getDb } from '@/lib/db';
+import { getCoverPath, saveCover } from '@/lib/covers';
+import { ensureCoversDir } from '@/lib/pdf-utils';
 
 const MAX_URL_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
-function saveCover(seriesId: string, buffer: Buffer) {
-  const coversDir = path.resolve(process.cwd(), 'public/covers');
-  fs.mkdirSync(coversDir, { recursive: true });
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ seriesId: string }> }
+) {
+  try {
+    const { seriesId } = await params;
+    const coverPath = getCoverPath(seriesId);
 
-  const coverPath = path.join(coversDir, `${seriesId}.jpg`);
-  fs.writeFileSync(coverPath, buffer);
+    if (!coverPath) {
+      return NextResponse.json({ error: 'No cover found' }, { status: 404 });
+    }
 
-  const dbCoverPath = `/covers/${seriesId}.jpg`;
-  const db = getDb();
-  db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(dbCoverPath, seriesId);
-
-  return dbCoverPath;
+    const imageBuffer = fs.readFileSync(coverPath);
+    return new NextResponse(imageBuffer, {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch (error) {
+    console.error('Failed to serve cover:', error);
+    return NextResponse.json({ error: 'Failed to serve cover' }, { status: 500 });
+  }
 }
 
 export async function POST(
@@ -27,13 +39,15 @@ export async function POST(
     const { seriesId } = await params;
     const db = getDb();
 
-    const series = db.prepare('SELECT id FROM series WHERE id = ?').get(seriesId);
+    const series = db.prepare('SELECT id, folder_name FROM series WHERE id = ?').get(seriesId) as { id: number; folder_name: string } | undefined;
     if (!series) {
       return NextResponse.json(
         { error: 'Series not found' },
         { status: 404 }
       );
     }
+
+    ensureCoversDir(series.folder_name);
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -89,16 +103,11 @@ export async function POST(
         );
       }
 
-      const buffer = Buffer.from(arrayBuffer);
-      const dbCoverPath = saveCover(seriesId, buffer);
-
-      return NextResponse.json({
-        success: true,
-        cover_path: dbCoverPath,
-      });
+      saveCover(seriesId, series.folder_name, Buffer.from(arrayBuffer));
+      return NextResponse.json({ success: true });
     }
 
-    // Handle multipart form data (existing behavior)
+    // Handle multipart form data
     const formData = await request.formData();
     const file = formData.get('cover') as File;
 
@@ -109,13 +118,8 @@ export async function POST(
       );
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const dbCoverPath = saveCover(seriesId, buffer);
-
-    return NextResponse.json({
-      success: true,
-      cover_path: dbCoverPath,
-    });
+    saveCover(seriesId, series.folder_name, Buffer.from(await file.arrayBuffer()));
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to upload cover:', error);
     return NextResponse.json(

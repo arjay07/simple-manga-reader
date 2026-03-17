@@ -2,6 +2,8 @@ import { execSync, execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
+
 /**
  * Check if pdftoppm is available on the system.
  */
@@ -42,10 +44,25 @@ export function extractFirstPage(pdfPath: string, outputPath: string): string {
 }
 
 /**
- * Ensure the volume covers directory exists.
+ * Ensure the .covers directory exists for a series folder.
+ * Returns the absolute path to the .covers directory.
  */
-export function ensureVolumeCoverDir(): string {
-  const dir = path.join(process.cwd(), 'public', 'covers', 'volumes');
+export function ensureCoversDir(folderName: string): string {
+  const dir = path.join(mangaDir, folderName, '.covers');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Get the filesystem path for a series cover image.
+ */
+export function getSeriesCoverPath(folderName: string): string {
+  return path.join(mangaDir, folderName, '.covers', 'cover.jpg');
+}
+
+/**
+ * Get the filesystem path for a volume thumbnail.
+ */
+export function getVolumeThumbnailPath(folderName: string, volumeId: number | string): string {
+  return path.join(mangaDir, folderName, '.covers', `vol-${volumeId}.jpg`);
 }

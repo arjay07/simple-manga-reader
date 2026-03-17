@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAdmin } from '@/components/AdminProvider';
@@ -17,7 +16,6 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
   const [imgError, setImgError] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
   const { isAdmin } = useAdmin();
-  const imageSrc = coverPath ?? `/covers/${id}.jpg`;
 
   function handleCoverUpdated() {
     setImgError(false);
@@ -31,13 +29,12 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-surface-elevated">
         {!imgError ? (
-          <Image
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
             key={cacheBust}
-            src={imageSrc}
+            src={`/api/manga/${id}/cover?v=${cacheBust}`}
             alt={title}
-            fill
-            className="object-cover transition-transform duration-200 group-hover:scale-105"
-            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
             onError={() => setImgError(true)}
           />
         ) : (

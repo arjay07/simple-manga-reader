@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useState } from 'react';
 
 interface CoverImageProps {
@@ -13,7 +12,6 @@ interface CoverImageProps {
 
 export function CoverImage({ series }: CoverImageProps) {
   const [imgError, setImgError] = useState(false);
-  const imageSrc = series.cover_path ?? `/covers/${series.id}.jpg`;
 
   if (imgError) {
     return (
@@ -27,13 +25,11 @@ export function CoverImage({ series }: CoverImageProps) {
 
   return (
     <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg">
-      <Image
-        src={imageSrc}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/manga/${series.id}/cover`}
         alt={series.title}
-        fill
-        className="object-cover"
-        sizes="240px"
-        priority
+        className="h-full w-full object-cover"
         onError={() => setImgError(true)}
       />
     </div>

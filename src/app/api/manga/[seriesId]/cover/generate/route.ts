@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '@/lib/db';
-import { isPdftoppmAvailable, extractFirstPage } from '@/lib/pdf-utils';
+import { isPdftoppmAvailable, extractFirstPage, ensureCoversDir, getSeriesCoverPath } from '@/lib/pdf-utils';
 
 const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
 
@@ -51,19 +51,13 @@ export async function POST(
       return NextResponse.json({ error: 'Volume PDF not found on disk' }, { status: 404 });
     }
 
-    const coversDir = path.resolve(process.cwd(), 'public/covers');
-    fs.mkdirSync(coversDir, { recursive: true });
-
-    const coverPath = path.join(coversDir, `${seriesId}.jpg`);
+    ensureCoversDir(series.folder_name);
+    const coverPath = getSeriesCoverPath(series.folder_name);
     extractFirstPage(pdfPath, coverPath);
 
-    const dbCoverPath = `/covers/${seriesId}.jpg`;
-    db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(dbCoverPath, Number(seriesId));
+    db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(coverPath, Number(seriesId));
 
-    return NextResponse.json({
-      success: true,
-      cover_path: dbCoverPath,
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to generate cover:', error);
     return NextResponse.json(

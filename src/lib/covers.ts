@@ -1,43 +1,34 @@
 import fs from 'fs';
-import path from 'path';
+import { getSeriesCoverPath, ensureCoversDir } from './pdf-utils';
 import { getDb } from './db';
 
 /**
- * Returns the cover image path for a series if one exists.
- * Checks the database cover_path first, then falls back to
- * the default location at public/covers/{seriesId}.jpg.
+ * Returns the absolute filesystem path for a series cover if one exists.
  */
 export function getCoverPath(seriesId: number | string): string | null {
   const db = getDb();
   const series = db
-    .prepare('SELECT cover_path FROM series WHERE id = ?')
-    .get(seriesId) as { cover_path: string | null } | undefined;
+    .prepare('SELECT folder_name FROM series WHERE id = ?')
+    .get(seriesId) as { folder_name: string } | undefined;
 
-  if (series?.cover_path) {
-    const fullPath = path.join(process.cwd(), 'public', series.cover_path);
-    if (fs.existsSync(fullPath)) {
-      return series.cover_path;
-    }
-  }
+  if (!series) return null;
 
-  // Check default location
-  const defaultPath = path.join(
-    process.cwd(),
-    'public',
-    'covers',
-    `${seriesId}.jpg`
-  );
-  if (fs.existsSync(defaultPath)) {
-    return `/covers/${seriesId}.jpg`;
+  const coverPath = getSeriesCoverPath(series.folder_name);
+  if (fs.existsSync(coverPath)) {
+    return coverPath;
   }
 
   return null;
 }
 
 /**
- * Returns the path where a generated cover image should be stored
- * for the given series.
+ * Save a buffer as the series cover image.
  */
-export function generateCoverPath(seriesId: number | string): string {
-  return `/covers/${seriesId}.jpg`;
+export function saveCover(seriesId: number | string, folderName: string, buffer: Buffer): void {
+  ensureCoversDir(folderName);
+  const coverPath = getSeriesCoverPath(folderName);
+  fs.writeFileSync(coverPath, buffer);
+
+  const db = getDb();
+  db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(coverPath, seriesId);
 }

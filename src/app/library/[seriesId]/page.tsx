@@ -1,6 +1,5 @@
 import { getDb } from '@/lib/db';
 import { notFound } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import { HeaderMenu } from '@/components/HeaderMenu';
 import { CoverImage } from './CoverImage';
