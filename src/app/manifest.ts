@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "A local manga reader for browsing and reading manga collections",
     start_url: "/",
     display: "standalone",
-    theme_color: "#e06515",
-    background_color: "#e06515",
+    theme_color: "#0a0a0a",
+    background_color: "#0a0a0a",
     icons: [
       {
         src: "/favicon.ico",
