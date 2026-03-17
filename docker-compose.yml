@@ -1,6 +1,8 @@
 services:
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     ports:
       - "80:80"
       - "443:443"
@@ -8,6 +10,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    environment:
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:?Set DUCKDNS_TOKEN in .env}
     depends_on:
       - manga-reader
     restart: unless-stopped

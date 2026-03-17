@@ -1,4 +1,6 @@
-manga.10.0.0.4.sslip.io {
-	tls internal
+manga-reader-arjay07.duckdns.org {
+	tls {
+		dns duckdns {env.DUCKDNS_TOKEN}
+	}
 	reverse_proxy manga-reader:3000
 }
