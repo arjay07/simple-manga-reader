@@ -60,6 +60,11 @@ export function getDb(): Database.Database {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(profile_id, volume_id)
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   // Migration: add reader_settings column if missing (existing DBs)

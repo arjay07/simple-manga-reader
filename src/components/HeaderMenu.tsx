@@ -8,6 +8,10 @@ import { useAdmin } from './AdminProvider';
 export function HeaderMenu() {
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [showDirInput, setShowDirInput] = useState(false);
+  const [mangaDir, setMangaDir] = useState('');
+  const [dirError, setDirError] = useState('');
+  const [savingDir, setSavingDir] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme, toggleTheme } = useTheme();
   const { isAdmin, toggleAdmin } = useAdmin();
@@ -46,6 +50,40 @@ export function HeaderMenu() {
     } finally {
       setScanning(false);
       setOpen(false);
+    }
+  }
+
+  async function handleOpenDirSetting() {
+    setShowDirInput(true);
+    setDirError('');
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setMangaDir(data.manga_dir ?? '');
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleSaveDir() {
+    setSavingDir(true);
+    setDirError('');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manga_dir: mangaDir }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setDirError(data.error ?? 'Failed to save');
+        return;
+      }
+      setShowDirInput(false);
+      setOpen(false);
+      router.refresh();
+    } finally {
+      setSavingDir(false);
     }
   }
 
@@ -90,6 +128,50 @@ export function HeaderMenu() {
               />
             </div>
           </button>
+
+          {isAdmin && (
+            <>
+              <button
+                onClick={handleOpenDirSetting}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors"
+              >
+                <span>Manga Folder</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+              {showDirInput && (
+                <div className="px-4 py-2.5 border-t border-border">
+                  <input
+                    type="text"
+                    value={mangaDir}
+                    onChange={(e) => setMangaDir(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDir(); }}
+                    className="w-full rounded bg-background border border-border px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent"
+                    placeholder="/path/to/manga"
+                  />
+                  {dirError && (
+                    <p className="mt-1 text-xs text-red-500">{dirError}</p>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={handleSaveDir}
+                      disabled={savingDir}
+                      className="flex-1 rounded bg-accent px-2 py-1 text-xs text-white hover:bg-accent/90 disabled:opacity-50"
+                    >
+                      {savingDir ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setShowDirInput(false)}
+                      className="flex-1 rounded bg-surface-elevated px-2 py-1 text-xs text-foreground hover:bg-border"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           <button
             onClick={() => {

@@ -1,9 +1,8 @@
 import { getDb } from '@/lib/db';
+import { getMangaDir } from '@/lib/settings';
 import { SeriesCard } from '@/components/Library/SeriesCard';
 import { ContinueReading } from '@/components/Library/ContinueReading';
 import { HeaderMenu } from '@/components/HeaderMenu';
-
-const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
 
 interface SeriesRow {
   id: number;
@@ -14,6 +13,7 @@ interface SeriesRow {
 }
 
 export default function LibraryPage() {
+  const mangaDir = getMangaDir();
   const db = getDb();
   const series = db.prepare(`
     SELECT s.*, COUNT(v.id) as volume_count

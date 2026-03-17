@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '@/lib/db';
+import { getMangaDir } from '@/lib/settings';
 import { isPdftoppmAvailable, extractFirstPage, ensureCoversDir, getSeriesCoverPath } from '@/lib/pdf-utils';
-
-const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
 
 interface VolumeRow {
   id: number;
@@ -46,7 +45,7 @@ export async function POST(
       return NextResponse.json({ error: 'No volumes found for this series' }, { status: 400 });
     }
 
-    const pdfPath = path.join(mangaDir, volume.folder_name, volume.filename);
+    const pdfPath = path.join(getMangaDir(), volume.folder_name, volume.filename);
     if (!fs.existsSync(pdfPath)) {
       return NextResponse.json({ error: 'Volume PDF not found on disk' }, { status: 404 });
     }

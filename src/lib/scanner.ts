@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb } from './db';
+import { getMangaDir } from './settings';
 
 /**
  * Extract volume number from a filename like "DRAGON BALL VOLUME 01.pdf"
@@ -28,7 +29,7 @@ export function extractVolumeNumber(filename: string): number | null {
  * Scan the manga directory and populate the database with series and volumes.
  */
 export function scanMangaDirectory(): { seriesCount: number; volumeCount: number } {
-  const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
+  const mangaDir = getMangaDir();
   const db = getDb();
 
   if (!fs.existsSync(mangaDir)) {

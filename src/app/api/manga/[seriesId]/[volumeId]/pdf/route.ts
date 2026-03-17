@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '@/lib/db';
+import { getMangaDir } from '@/lib/settings';
 
 export async function GET(
   _req: NextRequest,
@@ -9,7 +10,7 @@ export async function GET(
 ) {
   try {
     const { seriesId, volumeId } = await params;
-    const mangaDir = process.env.MANGA_DIR ?? '/home/arjay/manga';
+    const mangaDir = getMangaDir();
 
     const db = getDb();
     const row = db.prepare(
