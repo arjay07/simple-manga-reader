@@ -3,6 +3,7 @@ import { getMangaDir } from '@/lib/settings';
 import { SeriesCard } from '@/components/Library/SeriesCard';
 import { ContinueReading } from '@/components/Library/ContinueReading';
 import { HeaderMenu } from '@/components/HeaderMenu';
+import { GDriveOverlay } from '@/components/GDrive/GDriveOverlay';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +79,7 @@ export default function LibraryPage() {
           </div>
         )}
       </main>
+      <GDriveOverlay />
     </div>
   );
 }

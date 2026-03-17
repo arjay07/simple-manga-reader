@@ -22,6 +22,8 @@ ENV MANGA_DIR=/manga
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
+RUN apk add --no-cache poppler-utils
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
@@ -29,15 +31,16 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=build /app/public ./public
 
 # Create writable directories
-RUN mkdir -p /app/data /app/public/covers
-RUN chown -R nextjs:nodejs /app/data /app/public/covers
+RUN mkdir -p /app/data /app/public/covers /manga
+RUN chown -R nextjs:nodejs /app/data /app/public/covers /manga
 
 # Copy standalone build output
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-USER nextjs
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["/app/docker-entrypoint.sh"]
