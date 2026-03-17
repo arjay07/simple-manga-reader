@@ -1,0 +1,17 @@
+services:
+  manga-reader:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ${MANGA_DIR_HOST:?Set MANGA_DIR_HOST in .env to your manga folder path}:/manga:ro
+      - manga-data:/app/data
+      - manga-covers:/app/public/covers
+    environment:
+      - MANGA_DIR=/manga
+      - DATABASE_PATH=data/manga-reader.db
+    restart: unless-stopped
+
+volumes:
+  manga-data:
+  manga-covers:

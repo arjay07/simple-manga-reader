@@ -4,6 +4,8 @@ import { SeriesCard } from '@/components/Library/SeriesCard';
 import { ContinueReading } from '@/components/Library/ContinueReading';
 import { HeaderMenu } from '@/components/HeaderMenu';
 
+export const dynamic = 'force-dynamic';
+
 interface SeriesRow {
   id: number;
   title: string;

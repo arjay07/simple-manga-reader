@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.gitignore
+data/
+.env
+.env*
+*.md
+.DS_Store
+.vscode
+.vercel
+coverage
+.pnpm-debug.log*
+npm-debug.log*
+openspec/
