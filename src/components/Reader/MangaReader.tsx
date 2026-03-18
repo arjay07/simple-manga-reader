@@ -108,7 +108,20 @@ export default function MangaReader({
     const url = `/api/manga/${seriesId}/${volumeId}/pdf`;
     (async () => {
       try {
-        const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
+        // Polyfill Map.prototype.getOrInsertComputed (required by pdfjs-dist ≥5.5)
+      // https://github.com/tc39/proposal-upsert — landed in Chrome 136, not yet universal
+      // @ts-expect-error polyfill
+      if (typeof Map.prototype.getOrInsertComputed === 'undefined') {
+        // @ts-expect-error polyfill
+        Map.prototype.getOrInsertComputed = function <K, V>(key: K, callbackfn: (key: K) => V): V {
+          if (this.has(key)) return this.get(key);
+          const value = callbackfn(key);
+          this.set(key, value);
+          return value;
+        };
+      }
+
+      const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
         if (cancelled) return;
         GlobalWorkerOptions.workerSrc = new URL(
           'pdfjs-dist/build/pdf.worker.min.mjs',
