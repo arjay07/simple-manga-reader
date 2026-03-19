@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from './ThemeProvider';
 import { useAdmin } from './AdminProvider';
+import { useProfile } from './ProfileProvider';
 
 export function HeaderMenu() {
   const [open, setOpen] = useState(false);
@@ -15,6 +16,7 @@ export function HeaderMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme, toggleTheme } = useTheme();
   const { isAdmin, toggleAdmin } = useAdmin();
+  const { profile } = useProfile();
   const router = useRouter();
 
   useEffect(() => {
@@ -111,9 +113,22 @@ export function HeaderMenu() {
         <div className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-border bg-surface shadow-lg z-50">
           <button
             onClick={() => {
+              setOpen(false);
+              router.push('/');
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-t-lg"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/20 text-sm">
+              {profile?.avatar ?? (profile?.name?.[0]?.toUpperCase() ?? '?')}
+            </span>
+            <span className="truncate">{profile?.name ?? 'Switch Profile'}</span>
+          </button>
+          <div className="border-t border-border" />
+          <button
+            onClick={() => {
               toggleAdmin();
             }}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-t-lg"
+            className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors"
           >
             <span>Admin Mode</span>
             <div
