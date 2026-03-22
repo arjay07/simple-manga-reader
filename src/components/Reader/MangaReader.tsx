@@ -82,18 +82,27 @@ export default function MangaReader({
   const [arrowsVisible, setArrowsVisible] = useState(false);
   const [volumeOverlay, setVolumeOverlay] = useState<'end' | 'start' | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Canvas refs for carousel strip (prev / current / next)
+  const canvasRef = useRef<HTMLCanvasElement>(null);      // current
+  const prevCanvasRef = useRef<HTMLCanvasElement>(null);  // prev
+  const nextCanvasRef = useRef<HTMLCanvasElement>(null);  // next
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  // Spread mode canvases (unchanged)
   const canvasRef2 = useRef<HTMLCanvasElement>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const renderTaskRef2 = useRef<{ cancel: () => void } | null>(null);
+  const prevRenderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const nextRenderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const arrowHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const prerenderedPageRef = useRef<number | null>(null);
-  const prerenderTaskRef = useRef<{ cancel: () => void } | null>(null);
-  const prerenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
+  // Carousel state (refs — no re-render needed)
+  const isAnimatingRef = useRef(false);
+  const dragOffsetRef = useRef(0);
 
   // Detect wide viewport
   useEffect(() => {
@@ -113,19 +122,18 @@ export default function MangaReader({
     (async () => {
       try {
         // Polyfill Map.prototype.getOrInsertComputed (required by pdfjs-dist ≥5.5)
-      // https://github.com/tc39/proposal-upsert — landed in Chrome 136, not yet universal
-      // @ts-expect-error polyfill
-      if (typeof Map.prototype.getOrInsertComputed === 'undefined') {
         // @ts-expect-error polyfill
-        Map.prototype.getOrInsertComputed = function <K, V>(key: K, callbackfn: (key: K) => V): V {
-          if (this.has(key)) return this.get(key);
-          const value = callbackfn(key);
-          this.set(key, value);
-          return value;
-        };
-      }
+        if (typeof Map.prototype.getOrInsertComputed === 'undefined') {
+          // @ts-expect-error polyfill
+          Map.prototype.getOrInsertComputed = function <K, V>(key: K, callbackfn: (key: K) => V): V {
+            if (this.has(key)) return this.get(key);
+            const value = callbackfn(key);
+            this.set(key, value);
+            return value;
+          };
+        }
 
-      const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
+        const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
         if (cancelled) return;
         GlobalWorkerOptions.workerSrc = new URL(
           'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -151,7 +159,7 @@ export default function MangaReader({
     return () => { cancelled = true; };
   }, [seriesId, volumeId]);
 
-  // Render a single page onto a canvas (paginated mode only)
+  // Render a single page onto a canvas
   const renderPage = useCallback(
     async (
       doc: PDFDocumentProxy,
@@ -160,7 +168,11 @@ export default function MangaReader({
       taskRef: React.MutableRefObject<{ cancel: () => void } | null>,
       widthFraction: number = 1
     ) => {
-      if (pageNum < 1 || pageNum > doc.numPages) return;
+      if (pageNum < 1 || pageNum > doc.numPages) {
+        canvas.width = 0;
+        canvas.height = 0;
+        return;
+      }
 
       if (taskRef.current) {
         taskRef.current.cancel();
@@ -198,22 +210,19 @@ export default function MangaReader({
     []
   );
 
+  // Get direction-aware prev/next page numbers
+  const getNeighborPages = useCallback((page: number) => {
+    const prevPage = effectiveDirection === 'rtl' ? page + 1 : page - 1;
+    const nextPage = effectiveDirection === 'rtl' ? page - 1 : page + 1;
+    return { prevPage, nextPage };
+  }, [effectiveDirection]);
+
   // Render current page(s) in paginated mode
   useEffect(() => {
     if (isVertical || !pdfDocument || !canvasRef.current) return;
 
-    // Cancel any pending pre-render
-    if (prerenderTimerRef.current !== null) {
-      clearTimeout(prerenderTimerRef.current);
-      prerenderTimerRef.current = null;
-    }
-    if (prerenderTaskRef.current) {
-      prerenderTaskRef.current.cancel();
-      prerenderTaskRef.current = null;
-    }
-
     if (spreadMode && canvasRef2.current) {
-      prerenderedPageRef.current = null;
+      // Spread mode: render two pages side by side (unchanged behavior)
       const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
       const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
       const canvas1 = canvasRef.current;
@@ -232,61 +241,31 @@ export default function MangaReader({
         canvas2.height = 0;
       }
     } else {
+      // Single-page carousel: render current first, then neighbors
       const canvas = canvasRef.current;
-      const offscreen = offscreenCanvasRef.current;
+      renderPage(pdfDocument, currentPage, canvas, renderTaskRef);
 
-      // Blit pre-rendered page if it matches
-      if (offscreen && prerenderedPageRef.current === currentPage) {
-        if (renderTaskRef.current) {
-          renderTaskRef.current.cancel();
-          renderTaskRef.current = null;
-        }
-        canvas.width = offscreen.width;
-        canvas.height = offscreen.height;
-        canvas.style.width = offscreen.style.width;
-        canvas.style.height = offscreen.style.height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.drawImage(offscreen, 0, 0);
-        prerenderedPageRef.current = null;
-      } else {
-        prerenderedPageRef.current = null;
-        renderPage(pdfDocument, currentPage, canvas, renderTaskRef);
+      const { prevPage, nextPage } = getNeighborPages(currentPage);
+
+      // Render next neighbor immediately after current
+      if (nextCanvasRef.current) {
+        renderPage(pdfDocument, nextPage, nextCanvasRef.current, nextRenderTaskRef);
       }
 
-      // Schedule pre-render of the next page
-      const nextPage = effectiveDirection === 'rtl' ? currentPage - 1 : currentPage + 1;
-      if (nextPage >= 1 && nextPage <= pdfDocument.numPages) {
-        if (!offscreenCanvasRef.current) {
-          offscreenCanvasRef.current = document.createElement('canvas');
+      // Render prev neighbor at low priority
+      setTimeout(() => {
+        if (prevCanvasRef.current && pdfDocument) {
+          renderPage(pdfDocument, prevPage, prevCanvasRef.current, prevRenderTaskRef);
         }
-        const doc = pdfDocument;
-        const targetPage = nextPage;
-        const offscreenCanvas = offscreenCanvasRef.current;
-        prerenderTimerRef.current = setTimeout(() => {
-          prerenderTimerRef.current = null;
-          renderPage(doc, targetPage, offscreenCanvas, prerenderTaskRef).then(() => {
-            prerenderedPageRef.current = targetPage;
-          });
-        }, 100);
-      }
+      }, 0);
     }
-  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage]);
+  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage, getNeighborPages]);
 
   // Re-render paginated on resize
   useEffect(() => {
     if (isVertical) return;
     const onResize = () => {
       if (!pdfDocument || !canvasRef.current) return;
-      // Invalidate pre-render since container dimensions changed
-      if (prerenderTimerRef.current !== null) {
-        clearTimeout(prerenderTimerRef.current);
-        prerenderTimerRef.current = null;
-      }
-      if (prerenderTaskRef.current) {
-        prerenderTaskRef.current.cancel();
-        prerenderTaskRef.current = null;
-      }
-      prerenderedPageRef.current = null;
       if (spreadMode && canvasRef2.current) {
         const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
         const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
@@ -297,12 +276,21 @@ export default function MangaReader({
           renderPage(pdfDocument, rightPage, canvasRef2.current, renderTaskRef2, 0.5);
         }
       } else {
+        // Re-render all three strip canvases
         renderPage(pdfDocument, currentPage, canvasRef.current, renderTaskRef);
+
+        const { prevPage, nextPage } = getNeighborPages(currentPage);
+        if (nextCanvasRef.current) {
+          renderPage(pdfDocument, nextPage, nextCanvasRef.current, nextRenderTaskRef);
+        }
+        if (prevCanvasRef.current) {
+          renderPage(pdfDocument, prevPage, prevCanvasRef.current, prevRenderTaskRef);
+        }
       }
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage]);
+  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage, getNeighborPages]);
 
   // Navigation helpers
   const pageStep = spreadMode ? 2 : 1;
@@ -376,36 +364,161 @@ export default function MangaReader({
     return () => window.removeEventListener('keydown', handleKey);
   }, [effectiveDirection, isVertical, goNextPage, goPrevPage, settingsModalOpen]);
 
-  // Touch swipe handling (disabled in vertical mode)
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  // ── Carousel animation helpers ──────────────────────────────────────────
+
+  const setStripTransform = useCallback((offsetPx: number, withTransition: boolean) => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    strip.style.transition = withTransition ? 'transform 250ms ease-out' : 'none';
+    strip.style.transform = `translateX(calc(-100vw + ${offsetPx}px))`;
   }, []);
+
+  const commitPageChange = useCallback((direction: 'forward' | 'back') => {
+    if (direction === 'forward') {
+      if (effectiveDirection === 'rtl') goPrevPage();
+      else goNextPage();
+    } else {
+      if (effectiveDirection === 'rtl') goNextPage();
+      else goPrevPage();
+    }
+  }, [effectiveDirection, goNextPage, goPrevPage]);
+
+  const animateStrip = useCallback((direction: 'forward' | 'back') => {
+    const strip = stripRef.current;
+    if (!strip || isAnimatingRef.current) return;
+    isAnimatingRef.current = true;
+
+    const targetOffset = direction === 'forward' ? -window.innerWidth : window.innerWidth;
+
+    // Check if navigation is possible before animating
+    const currentPageVal = currentPage;
+    const isForwardBlocked = direction === 'forward' &&
+      (effectiveDirection === 'ltr' ? currentPageVal >= totalPages : currentPageVal <= 1);
+    const isBackBlocked = direction === 'back' &&
+      (effectiveDirection === 'ltr' ? currentPageVal <= 1 : currentPageVal >= totalPages);
+
+    if (isForwardBlocked || isBackBlocked) {
+      // Trigger end/start overlay if relevant, then spring back
+      if (direction === 'forward' && currentPageVal >= totalPages) setVolumeOverlay('end');
+      if (direction === 'back' && currentPageVal <= 1 && prevVolumeId) setVolumeOverlay('start');
+      setStripTransform(0, true);
+      const onEnd = () => {
+        strip.removeEventListener('transitionend', onEnd);
+        isAnimatingRef.current = false;
+        dragOffsetRef.current = 0;
+      };
+      strip.addEventListener('transitionend', onEnd);
+      return;
+    }
+
+    setStripTransform(targetOffset, true);
+
+    const onTransitionEnd = () => {
+      strip.removeEventListener('transitionend', onTransitionEnd);
+      requestAnimationFrame(() => {
+        // Copy the incoming canvas into the current slot before resetting strip,
+        // so there's no flash of the old page when translateX snaps back.
+        const sourceCanvas = direction === 'forward' ? nextCanvasRef.current : prevCanvasRef.current;
+        const destCanvas = canvasRef.current;
+        if (sourceCanvas && destCanvas && sourceCanvas.width > 0) {
+          destCanvas.width = sourceCanvas.width;
+          destCanvas.height = sourceCanvas.height;
+          destCanvas.style.width = sourceCanvas.style.width;
+          destCanvas.style.height = sourceCanvas.style.height;
+          const ctx = destCanvas.getContext('2d');
+          if (ctx) ctx.drawImage(sourceCanvas, 0, 0);
+        }
+        setStripTransform(0, false);
+        commitPageChange(direction);
+        isAnimatingRef.current = false;
+        dragOffsetRef.current = 0;
+      });
+    };
+    strip.addEventListener('transitionend', onTransitionEnd);
+  }, [currentPage, totalPages, effectiveDirection, prevVolumeId, setStripTransform, commitPageChange]);
+
+  const springBack = useCallback(() => {
+    setStripTransform(0, true);
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onEnd = () => {
+      strip.removeEventListener('transitionend', onEnd);
+      isAnimatingRef.current = false;
+      dragOffsetRef.current = 0;
+    };
+    strip.addEventListener('transitionend', onEnd);
+  }, [setStripTransform]);
+
+  // ── Touch handlers ──────────────────────────────────────────────────────
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (isVertical) return;
+    if (isAnimatingRef.current) return;
+    if (spreadMode) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  }, [isVertical, spreadMode]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (isVertical || spreadMode || !touchStartRef.current) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    dragOffsetRef.current = dx;
+    setStripTransform(dx, false);
+  }, [isVertical, spreadMode, setStripTransform]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
-      if (!touchStartRef.current || isVertical) return;
+      if (isVertical || spreadMode) {
+        // Spread mode: legacy swipe behavior
+        if (!spreadMode) return;
+        if (!touchStartRef.current) return;
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - touchStartRef.current.x;
+        const dy = touch.clientY - touchStartRef.current.y;
+        touchStartRef.current = null;
+        if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+        e.preventDefault();
+        if (dx < 0) {
+          if (effectiveDirection === 'rtl') goPrevPage(); else goNextPage();
+        } else {
+          if (effectiveDirection === 'rtl') goNextPage(); else goPrevPage();
+        }
+        return;
+      }
+
+      if (!touchStartRef.current) return;
       const touch = e.changedTouches[0];
       const dx = touch.clientX - touchStartRef.current.x;
       const dy = touch.clientY - touchStartRef.current.y;
+      const dt = Date.now() - touchStartRef.current.time;
       touchStartRef.current = null;
 
-      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+      // Ignore mostly-vertical swipes
+      if (Math.abs(dx) < Math.abs(dy) * 0.5 && Math.abs(dx) < 30) {
+        springBack();
+        return;
+      }
 
-      e.preventDefault();
+      const velocity = Math.abs(dx) / dt; // px/ms
+      const isFastFlick = velocity > 0.3;
+      const threshold = window.innerWidth * 0.3;
 
-      if (dx < 0) {
-        // Swipe left → next page in LTR, prev page in RTL
-        if (effectiveDirection === 'rtl') goPrevPage();
-        else goNextPage();
+      if (isFastFlick || Math.abs(dx) >= threshold) {
+        animateStrip(dx < 0 ? 'forward' : 'back');
       } else {
-        // Swipe right → prev page in LTR, next page in RTL
-        if (effectiveDirection === 'rtl') goNextPage();
-        else goPrevPage();
+        springBack();
       }
     },
-    [effectiveDirection, isVertical, goNextPage, goPrevPage]
+    [isVertical, spreadMode, effectiveDirection, goNextPage, goPrevPage, animateStrip, springBack]
   );
+
+  // Legacy swipe for spread mode (tap-based, no drag)
+  const handleSpreadTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!spreadMode) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  }, [spreadMode]);
 
   // Tap handler with tap-to-turn zone detection
   const handleContainerClick = useCallback(
@@ -420,12 +533,10 @@ export default function MangaReader({
 
         // Left 25%, center 50%, right 25%
         if (ratio < 0.25) {
-          // Left zone
           if (effectiveDirection === 'rtl') goNextPage();
           else goPrevPage();
           return;
         } else if (ratio > 0.75) {
-          // Right zone
           if (effectiveDirection === 'rtl') goPrevPage();
           else goNextPage();
           return;
@@ -436,6 +547,17 @@ export default function MangaReader({
       setBarsVisible((v) => !v);
     },
     [settings.tapToTurn, isVertical, effectiveDirection, goNextPage, goPrevPage, settingsModalOpen]
+  );
+
+  // Scroll wheel handler
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (isVertical || spreadMode) return;
+      e.preventDefault();
+      if (isAnimatingRef.current) return;
+      animateStrip(e.deltaY > 0 ? 'forward' : 'back');
+    },
+    [isVertical, spreadMode, animateStrip]
   );
 
   // Settings change handler with debounced save
@@ -515,9 +637,11 @@ export default function MangaReader({
       ref={containerRef}
       className="relative w-screen h-screen bg-black overflow-hidden select-none"
       onTouchStart={handleTouchStart}
+      onTouchMove={!isVertical && !spreadMode ? handleTouchMove : undefined}
       onTouchEnd={handleTouchEnd}
       onClick={handleContainerClick}
       onMouseMove={handleMouseMove}
+      onWheel={!isVertical && !spreadMode ? handleWheel : undefined}
       tabIndex={0}
     >
       {/* Reading area */}
@@ -526,17 +650,41 @@ export default function MangaReader({
           pdfDocument={pdfDocument}
           totalPages={totalPages}
           onPageChange={handlePageChange}
+          snapEnabled={settings.verticalSnap}
         />
-      ) : (
+      ) : spreadMode ? (
+        // Spread mode: two canvases side by side, unchanged
         <div className="flex items-center justify-center w-full h-full">
-          {spreadMode ? (
-            <div className="flex items-center justify-center h-full gap-0">
-              <canvas ref={canvasRef} className="max-h-full" />
-              <canvas ref={canvasRef2} className="max-h-full" />
+          <div className="flex items-center justify-center h-full gap-0">
+            <canvas ref={canvasRef} className="max-h-full" />
+            <canvas ref={canvasRef2} className="max-h-full" />
+          </div>
+        </div>
+      ) : (
+        // Single-page carousel strip
+        <div className="w-full h-full overflow-hidden">
+          <div
+            ref={stripRef}
+            className="flex h-full"
+            style={{
+              width: '300vw',
+              transform: 'translateX(-100vw)',
+              willChange: 'transform',
+            }}
+          >
+            {/* Prev slot */}
+            <div className="w-screen h-full flex items-center justify-center">
+              <canvas ref={prevCanvasRef} className="max-h-full max-w-full" />
             </div>
-          ) : (
-            <canvas ref={canvasRef} className="max-h-full max-w-full" />
-          )}
+            {/* Current slot */}
+            <div className="w-screen h-full flex items-center justify-center">
+              <canvas ref={canvasRef} className="max-h-full max-w-full" />
+            </div>
+            {/* Next slot */}
+            <div className="w-screen h-full flex items-center justify-center">
+              <canvas ref={nextCanvasRef} className="max-h-full max-w-full" />
+            </div>
+          </div>
         </div>
       )}
 

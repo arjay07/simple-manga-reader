@@ -5,12 +5,14 @@ export interface ReaderSettings {
   readingDirection: ReadingDirection;
   tapToTurn: boolean;
   pageMode: PageMode;
+  verticalSnap: boolean;
 }
 
 export const READER_DEFAULTS: ReaderSettings = {
   readingDirection: 'rtl',
   tapToTurn: false,
   pageMode: 'single',
+  verticalSnap: false,
 };
 
 export function parseReaderSettings(json: string | null | undefined, fallbackDirection?: string): ReaderSettings {

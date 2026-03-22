@@ -52,6 +52,10 @@ export default function ReaderSettingsModal({
     onSettingsChange({ ...settings, pageMode: mode });
   };
 
+  const setVerticalSnap = (value: boolean) => {
+    onSettingsChange({ ...settings, verticalSnap: value });
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -108,6 +112,27 @@ export default function ReaderSettingsModal({
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
                     settings.tapToTurn ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Snap to Pages (vertical only) */}
+        {isVertical && (
+          <div className="mb-5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-white/60 uppercase tracking-wide">Snap to Pages</label>
+              <button
+                onClick={() => setVerticalSnap(!settings.verticalSnap)}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  settings.verticalSnap ? 'bg-blue-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                    settings.verticalSnap ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

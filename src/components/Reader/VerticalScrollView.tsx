@@ -10,9 +10,10 @@ interface VerticalScrollViewProps {
   pdfDocument: PDFDocumentProxy;
   totalPages: number;
   onPageChange: (page: number) => void;
+  snapEnabled?: boolean;
 }
 
-export default function VerticalScrollView({ pdfDocument, totalPages, onPageChange }: VerticalScrollViewProps) {
+export default function VerticalScrollView({ pdfDocument, totalPages, onPageChange, snapEnabled = false }: VerticalScrollViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const renderedPages = useRef<Set<number>>(new Set());
@@ -179,10 +180,42 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
     };
   }, [pdfDocument, totalPages, renderPage, applyPlaceholderSizes]);
 
+  // Touch snap handler
+  const handleTouchEnd = useCallback(() => {
+    if (!snapEnabled) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const viewportCenterY = containerRect.top + container.clientHeight / 2;
+
+    let nearestCanvas: HTMLCanvasElement | null = null;
+    let nearestDist = Infinity;
+
+    for (const canvas of canvasRefs.current) {
+      if (!canvas) continue;
+      const canvasRect = canvas.getBoundingClientRect();
+      const canvasCenterY = canvasRect.top + canvas.offsetHeight / 2;
+      const dist = Math.abs(canvasCenterY - viewportCenterY);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestCanvas = canvas;
+      }
+    }
+
+    if (nearestCanvas) {
+      const canvasRect = nearestCanvas.getBoundingClientRect();
+      const scrollTarget = container.scrollTop + (canvasRect.top - containerRect.top);
+      container.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+    }
+  }, [snapEnabled]);
+
   return (
     <div
       ref={containerRef}
       className="w-full h-full overflow-y-auto overflow-x-hidden"
+      onTouchEnd={snapEnabled ? handleTouchEnd : undefined}
     >
       <div className="flex flex-col items-center">
         {Array.from({ length: totalPages }, (_, i) => (
