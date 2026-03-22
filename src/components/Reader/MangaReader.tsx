@@ -90,6 +90,10 @@ export default function MangaReader({
   const renderTaskRef2 = useRef<{ cancel: () => void } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const arrowHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const prerenderedPageRef = useRef<number | null>(null);
+  const prerenderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const prerenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Detect wide viewport
   useEffect(() => {
@@ -167,17 +171,20 @@ export default function MangaReader({
       const container = containerRef.current;
       if (!container) return;
 
+      const dpr = window.devicePixelRatio || 1;
       const containerWidth = container.clientWidth * widthFraction;
       const containerHeight = container.clientHeight;
 
       const viewport = page.getViewport({ scale: 1 });
       const scaleW = containerWidth / viewport.width;
       const scaleH = containerHeight / viewport.height;
-      const scale = Math.min(scaleW, scaleH);
+      const scale = Math.min(scaleW, scaleH) * dpr;
       const scaledViewport = page.getViewport({ scale });
 
       canvas.width = scaledViewport.width;
       canvas.height = scaledViewport.height;
+      canvas.style.width = `${scaledViewport.width / dpr}px`;
+      canvas.style.height = `${scaledViewport.height / dpr}px`;
 
       const renderTask = page.render({ canvas, viewport: scaledViewport });
       taskRef.current = { cancel: () => renderTask.cancel() };
@@ -195,7 +202,18 @@ export default function MangaReader({
   useEffect(() => {
     if (isVertical || !pdfDocument || !canvasRef.current) return;
 
+    // Cancel any pending pre-render
+    if (prerenderTimerRef.current !== null) {
+      clearTimeout(prerenderTimerRef.current);
+      prerenderTimerRef.current = null;
+    }
+    if (prerenderTaskRef.current) {
+      prerenderTaskRef.current.cancel();
+      prerenderTaskRef.current = null;
+    }
+
     if (spreadMode && canvasRef2.current) {
+      prerenderedPageRef.current = null;
       const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
       const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;
       const canvas1 = canvasRef.current;
@@ -214,7 +232,43 @@ export default function MangaReader({
         canvas2.height = 0;
       }
     } else {
-      renderPage(pdfDocument, currentPage, canvasRef.current, renderTaskRef);
+      const canvas = canvasRef.current;
+      const offscreen = offscreenCanvasRef.current;
+
+      // Blit pre-rendered page if it matches
+      if (offscreen && prerenderedPageRef.current === currentPage) {
+        if (renderTaskRef.current) {
+          renderTaskRef.current.cancel();
+          renderTaskRef.current = null;
+        }
+        canvas.width = offscreen.width;
+        canvas.height = offscreen.height;
+        canvas.style.width = offscreen.style.width;
+        canvas.style.height = offscreen.style.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(offscreen, 0, 0);
+        prerenderedPageRef.current = null;
+      } else {
+        prerenderedPageRef.current = null;
+        renderPage(pdfDocument, currentPage, canvas, renderTaskRef);
+      }
+
+      // Schedule pre-render of the next page
+      const nextPage = effectiveDirection === 'rtl' ? currentPage - 1 : currentPage + 1;
+      if (nextPage >= 1 && nextPage <= pdfDocument.numPages) {
+        if (!offscreenCanvasRef.current) {
+          offscreenCanvasRef.current = document.createElement('canvas');
+        }
+        const doc = pdfDocument;
+        const targetPage = nextPage;
+        const offscreenCanvas = offscreenCanvasRef.current;
+        prerenderTimerRef.current = setTimeout(() => {
+          prerenderTimerRef.current = null;
+          renderPage(doc, targetPage, offscreenCanvas, prerenderTaskRef).then(() => {
+            prerenderedPageRef.current = targetPage;
+          });
+        }, 100);
+      }
     }
   }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage]);
 
@@ -223,6 +277,16 @@ export default function MangaReader({
     if (isVertical) return;
     const onResize = () => {
       if (!pdfDocument || !canvasRef.current) return;
+      // Invalidate pre-render since container dimensions changed
+      if (prerenderTimerRef.current !== null) {
+        clearTimeout(prerenderTimerRef.current);
+        prerenderTimerRef.current = null;
+      }
+      if (prerenderTaskRef.current) {
+        prerenderTaskRef.current.cancel();
+        prerenderTaskRef.current = null;
+      }
+      prerenderedPageRef.current = null;
       if (spreadMode && canvasRef2.current) {
         const leftPage = effectiveDirection === 'rtl' ? currentPage + 1 : currentPage;
         const rightPage = effectiveDirection === 'rtl' ? currentPage : currentPage + 1;

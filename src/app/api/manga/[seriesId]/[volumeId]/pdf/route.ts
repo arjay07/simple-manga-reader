@@ -4,8 +4,27 @@ import path from 'path';
 import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
 
+function streamToReadable(fileStream: fs.ReadStream): ReadableStream {
+  return new ReadableStream({
+    start(controller) {
+      fileStream.on('data', (chunk) => {
+        controller.enqueue(chunk);
+      });
+      fileStream.on('end', () => {
+        controller.close();
+      });
+      fileStream.on('error', (err) => {
+        controller.error(err);
+      });
+    },
+    cancel() {
+      fileStream.destroy();
+    },
+  });
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ seriesId: string; volumeId: string }> }
 ) {
   try {
@@ -30,32 +49,52 @@ export async function GET(
       return new Response('File not found', { status: 404 });
     }
 
-    const stat = fs.statSync(filePath);
+    const { size: fileSize } = fs.statSync(filePath);
+    const commonHeaders = {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=86400',
+    };
+
+    const rangeHeader = req.headers.get('range');
+    if (rangeHeader) {
+      const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+      if (!match) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${fileSize}` },
+        });
+      }
+
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize || start > end) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${fileSize}` },
+        });
+      }
+
+      const chunkSize = end - start + 1;
+      const fileStream = fs.createReadStream(filePath, { start, end });
+
+      return new Response(streamToReadable(fileStream), {
+        status: 206,
+        headers: {
+          ...commonHeaders,
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Content-Length': String(chunkSize),
+        },
+      });
+    }
+
     const fileStream = fs.createReadStream(filePath);
-
-    const readable = new ReadableStream({
-      start(controller) {
-        fileStream.on('data', (chunk) => {
-          controller.enqueue(chunk);
-        });
-        fileStream.on('end', () => {
-          controller.close();
-        });
-        fileStream.on('error', (err) => {
-          controller.error(err);
-        });
-      },
-      cancel() {
-        fileStream.destroy();
-      },
-    });
-
-    return new Response(readable, {
+    return new Response(streamToReadable(fileStream), {
       headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline',
-        'Content-Length': String(stat.size),
-        'Cache-Control': 'private, max-age=86400',
+        ...commonHeaders,
+        'Content-Length': String(fileSize),
       },
     });
   } catch (err) {

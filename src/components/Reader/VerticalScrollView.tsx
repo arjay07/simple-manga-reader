@@ -64,15 +64,16 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
       const container = containerRef.current;
       if (!container) return;
 
+      const dpr = window.devicePixelRatio || 1;
       const containerWidth = container.clientWidth;
       const vp = page.getViewport({ scale: 1 });
-      const scale = containerWidth / vp.width;
+      const scale = (containerWidth / vp.width) * dpr;
       const scaledViewport = page.getViewport({ scale });
 
       canvas.width = scaledViewport.width;
       canvas.height = scaledViewport.height;
-      canvas.style.width = `${scaledViewport.width}px`;
-      canvas.style.height = `${scaledViewport.height}px`;
+      canvas.style.width = `${scaledViewport.width / dpr}px`;
+      canvas.style.height = `${scaledViewport.height / dpr}px`;
 
       try {
         await page.render({ canvas, viewport: scaledViewport }).promise;
