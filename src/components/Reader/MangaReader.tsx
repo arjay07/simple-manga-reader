@@ -104,6 +104,17 @@ export default function MangaReader({
   const isAnimatingRef = useRef(false);
   const dragOffsetRef = useRef(0);
 
+  // Zoom state
+  const [isZoomed, setIsZoomed] = useState(false);
+  const isZoomedRef = useRef(false); // mirror for use inside callbacks without stale closure
+  const zoomScaleRef = useRef(1);
+  const zoomOriginRef = useRef({ x: 0, y: 0 }); // tap point in canvas-local coords
+  const panRef = useRef({ x: 0, y: 0 });
+  const zoomWrapperRef = useRef<HTMLDivElement>(null);
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressNextClickRef = useRef(false);
+
   // Detect wide viewport
   useEffect(() => {
     const checkWidth = () => setIsWideViewport(window.innerWidth > 1024);
@@ -449,12 +460,97 @@ export default function MangaReader({
     strip.addEventListener('transitionend', onEnd);
   }, [setStripTransform]);
 
+  // ── Zoom helpers ─────────────────────────────────────────────────────────
+
+  // Applies the current zoom/pan state to the wrapper div's CSS transform.
+  // transform-origin: 0 0; transform: translate(tx, ty) scale(s)
+  // This keeps zoomOrigin fixed on screen (tx = ox*(1-s)+panX).
+  const applyZoomTransform = useCallback((withTransition: boolean) => {
+    const wrapper = zoomWrapperRef.current;
+    if (!wrapper) return;
+    const s = zoomScaleRef.current;
+    const { x: ox, y: oy } = zoomOriginRef.current;
+    const { x: panX, y: panY } = panRef.current;
+    wrapper.style.transition = withTransition ? 'transform 200ms ease-out' : 'none';
+    wrapper.style.transformOrigin = '0 0';
+    if (s === 1) {
+      wrapper.style.transform = 'none';
+    } else {
+      const tx = ox * (1 - s) + panX;
+      const ty = oy * (1 - s) + panY;
+      wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    }
+  }, []);
+
+  // Returns true if this touch is a double-tap (within 280ms and 40px of last tap).
+  const detectDoubleTap = useCallback((x: number, y: number): boolean => {
+    const now = Date.now();
+    const last = lastTapRef.current;
+    lastTapRef.current = { time: now, x, y };
+    if (!last) return false;
+    return now - last.time < 280 && Math.hypot(x - last.x, y - last.y) < 40;
+  }, []);
+
+  // Computes pan clamping bounds so the zoomed canvas never shows gaps at viewport edges.
+  const computePanBounds = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    const s = zoomScaleRef.current;
+    const { x: ox, y: oy } = zoomOriginRef.current;
+    const cw = parseFloat(canvas.style.width) || 0;
+    const ch = parseFloat(canvas.style.height) || 0;
+    const vW = window.innerWidth;
+    const vH = container.clientHeight;
+    // Natural (pre-transform) canvas position in viewport (centered by flexbox slot)
+    const natLeft = (vW - cw) / 2;
+    const natTop = (vH - ch) / 2;
+    // Zoomed canvas edges on screen at panX=panY=0
+    const zLeft = natLeft + ox * (1 - s);
+    const zRight = zLeft + cw * s;
+    const zTop = natTop + oy * (1 - s);
+    const zBottom = zTop + ch * s;
+    // Allow pan only as far as needed to keep canvas covering the viewport
+    return {
+      minX: zRight > vW ? vW - zRight : 0,
+      maxX: zLeft < 0 ? -zLeft : 0,
+      minY: zBottom > vH ? vH - zBottom : 0,
+      maxY: zTop < 0 ? -zTop : 0,
+    };
+  }, []);
+
+  const enterZoom = useCallback((tapX: number, tapY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    zoomOriginRef.current = { x: tapX - rect.left, y: tapY - rect.top };
+    zoomScaleRef.current = 2.5;
+    panRef.current = { x: 0, y: 0 };
+    isZoomedRef.current = true;
+    setIsZoomed(true);
+    applyZoomTransform(true);
+  }, [applyZoomTransform]);
+
+  const exitZoom = useCallback((withTransition = true) => {
+    zoomScaleRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+    isZoomedRef.current = false;
+    setIsZoomed(false);
+    applyZoomTransform(withTransition);
+  }, [applyZoomTransform]);
+
+  // Reset zoom when navigating to a different page
+  useEffect(() => {
+    if (isZoomedRef.current) exitZoom(false);
+  }, [currentPage, exitZoom]);
+
   // ── Touch handlers ──────────────────────────────────────────────────────
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (isVertical) return;
-    if (isAnimatingRef.current) return;
     if (spreadMode) return;
+    // Allow recording touch while zoomed (needed for pan); block carousel animation only
+    if (isAnimatingRef.current && !isZoomedRef.current) return;
     const touch = e.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
   }, [isVertical, spreadMode]);
@@ -463,9 +559,24 @@ export default function MangaReader({
     if (isVertical || spreadMode || !touchStartRef.current) return;
     const touch = e.touches[0];
     const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+
+    if (isZoomedRef.current) {
+      // Pan the zoomed canvas; clamp to page bounds
+      const bounds = computePanBounds();
+      panRef.current = {
+        x: Math.min(bounds.maxX, Math.max(bounds.minX, panRef.current.x + dx)),
+        y: Math.min(bounds.maxY, Math.max(bounds.minY, panRef.current.y + dy)),
+      };
+      // Reset origin each move so delta is incremental
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: touchStartRef.current.time };
+      applyZoomTransform(false);
+      return;
+    }
+
     dragOffsetRef.current = dx;
     setStripTransform(dx, false);
-  }, [isVertical, spreadMode, setStripTransform]);
+  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -494,7 +605,52 @@ export default function MangaReader({
       const dt = Date.now() - touchStartRef.current.time;
       touchStartRef.current = null;
 
-      // Ignore mostly-vertical swipes
+      const isTap = Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 300;
+
+      if (isTap) {
+        suppressNextClickRef.current = true;
+
+        if (detectDoubleTap(touch.clientX, touch.clientY)) {
+          // Cancel any in-flight single-tap action
+          if (tapTimerRef.current) {
+            clearTimeout(tapTimerRef.current);
+            tapTimerRef.current = null;
+          }
+          if (isZoomedRef.current) {
+            exitZoom(true);
+          } else {
+            enterZoom(touch.clientX, touch.clientY);
+          }
+          return;
+        }
+
+        // Single tap — defer by 280ms to allow double-tap detection
+        const tapX = touch.clientX;
+        tapTimerRef.current = setTimeout(() => {
+          tapTimerRef.current = null;
+          if (isZoomedRef.current) {
+            // While zoomed: only toggle toolbar
+            setBarsVisible((v) => !v);
+          } else if (settings.tapToTurn) {
+            const ratio = tapX / window.innerWidth;
+            if (ratio < 0.25) {
+              if (effectiveDirection === 'rtl') goNextPage(); else goPrevPage();
+            } else if (ratio > 0.75) {
+              if (effectiveDirection === 'rtl') goPrevPage(); else goNextPage();
+            } else {
+              setBarsVisible((v) => !v);
+            }
+          } else {
+            setBarsVisible((v) => !v);
+          }
+        }, 280);
+        return;
+      }
+
+      // Non-tap gesture: if zoomed, pan was already applied in handleTouchMove
+      if (isZoomedRef.current) return;
+
+      // Carousel swipe logic
       if (Math.abs(dx) < Math.abs(dy) * 0.5 && Math.abs(dx) < 30) {
         springBack();
         return;
@@ -510,7 +666,9 @@ export default function MangaReader({
         springBack();
       }
     },
-    [isVertical, spreadMode, effectiveDirection, goNextPage, goPrevPage, animateStrip, springBack]
+    [isVertical, spreadMode, effectiveDirection, settings.tapToTurn,
+     goNextPage, goPrevPage, animateStrip, springBack,
+     detectDoubleTap, enterZoom, exitZoom]
   );
 
   // Legacy swipe for spread mode (tap-based, no drag)
@@ -520,10 +678,15 @@ export default function MangaReader({
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
   }, [spreadMode]);
 
-  // Tap handler with tap-to-turn zone detection
+  // Tap handler with tap-to-turn zone detection (mouse/desktop only; mobile taps handled in touchend)
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
       if (settingsModalOpen) return;
+      // Suppress click if a touch gesture already handled this tap
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
 
       if (settings.tapToTurn && !isVertical) {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -678,7 +841,9 @@ export default function MangaReader({
             </div>
             {/* Current slot */}
             <div className="w-screen h-full flex items-center justify-center">
-              <canvas ref={canvasRef} className="max-h-full max-w-full" />
+              <div ref={zoomWrapperRef} style={{ transformOrigin: '0 0' }}>
+                <canvas ref={canvasRef} className="max-h-full max-w-full" />
+              </div>
             </div>
             {/* Next slot */}
             <div className="w-screen h-full flex items-center justify-center">
