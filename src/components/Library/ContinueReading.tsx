@@ -53,7 +53,7 @@ export function ContinueReading() {
       >
         <div className="relative h-20 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-border">
           <img
-            src={`/api/manga/${hero.series_id}/cover`}
+            src={`/api/manga/${hero.series_id}/${hero.volume_id}/thumbnail`}
             alt={hero.series_title}
             className="h-full w-full object-cover"
           />

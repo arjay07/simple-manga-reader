@@ -22,7 +22,7 @@ export async function GET(
     return new NextResponse(imageBuffer, {
       headers: {
         'Content-Type': 'image/jpeg',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'no-store',
       },
     });
   } catch (error) {

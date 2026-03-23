@@ -39,6 +39,7 @@ export function getDb(): Database.Database {
       cover_path TEXT,
       author TEXT,
       description TEXT,
+      mangadex_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -71,6 +72,12 @@ export function getDb(): Database.Database {
   const columns = db.pragma('table_info(profiles)') as { name: string }[];
   if (!columns.some((c) => c.name === 'reader_settings')) {
     db.exec(`ALTER TABLE profiles ADD COLUMN reader_settings TEXT DEFAULT '{}'`);
+  }
+
+  // Migration: add mangadex_id column if missing (existing DBs)
+  const seriesColumns = db.pragma('table_info(series)') as { name: string }[];
+  if (!seriesColumns.some((c) => c.name === 'mangadex_id')) {
+    db.exec(`ALTER TABLE series ADD COLUMN mangadex_id TEXT`);
   }
 
   return db;

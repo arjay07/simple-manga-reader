@@ -72,13 +72,15 @@ export default function ReaderBottomBar({
       >
         {/* Scrub bar positioned above the bottom bar */}
         {!isVertical && (
-          <PageScrubBar
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pdfDocument={pdfDocument}
-            onPageChange={handlePageChange}
-            direction={direction}
-          />
+          <div className={visible ? '' : 'pointer-events-none'}>
+            <PageScrubBar
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pdfDocument={pdfDocument}
+              onPageChange={handlePageChange}
+              direction={direction}
+            />
+          </div>
         )}
 
         {/* Bottom bar content */}

@@ -11,6 +11,7 @@ interface Series {
   cover_path: string | null;
   author: string | null;
   description: string | null;
+  mangadex_id: string | null;
 }
 
 interface Volume {
