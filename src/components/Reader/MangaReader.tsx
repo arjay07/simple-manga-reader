@@ -75,6 +75,8 @@ export default function MangaReader({
   });
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pageRendering, setPageRendering] = useState(false);
+  const pageRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isWideViewport, setIsWideViewport] = useState(false);
   const [barsVisible, setBarsVisible] = useState(false);
@@ -239,22 +241,27 @@ export default function MangaReader({
       const canvas1 = canvasRef.current;
       const canvas2 = canvasRef2.current;
 
-      if (leftPage >= 1 && leftPage <= pdfDocument.numPages) {
-        renderPage(pdfDocument, leftPage, canvas1, renderTaskRef, 0.5);
-      } else {
-        canvas1.width = 0;
-        canvas1.height = 0;
-      }
-      if (rightPage >= 1 && rightPage <= pdfDocument.numPages) {
-        renderPage(pdfDocument, rightPage, canvas2, renderTaskRef2, 0.5);
-      } else {
-        canvas2.width = 0;
-        canvas2.height = 0;
-      }
+      if (pageRenderTimerRef.current) clearTimeout(pageRenderTimerRef.current);
+      pageRenderTimerRef.current = setTimeout(() => setPageRendering(true), 150);
+      const leftPromise = leftPage >= 1 && leftPage <= pdfDocument.numPages
+        ? renderPage(pdfDocument, leftPage, canvas1, renderTaskRef, 0.5)
+        : (canvas1.width = 0, canvas1.height = 0, Promise.resolve());
+      const rightPromise = rightPage >= 1 && rightPage <= pdfDocument.numPages
+        ? renderPage(pdfDocument, rightPage, canvas2, renderTaskRef2, 0.5)
+        : (canvas2.width = 0, canvas2.height = 0, Promise.resolve());
+      Promise.all([leftPromise, rightPromise]).then(() => {
+        if (pageRenderTimerRef.current) { clearTimeout(pageRenderTimerRef.current); pageRenderTimerRef.current = null; }
+        setPageRendering(false);
+      });
     } else {
       // Single-page carousel: render current first, then neighbors
       const canvas = canvasRef.current;
-      renderPage(pdfDocument, currentPage, canvas, renderTaskRef);
+      if (pageRenderTimerRef.current) clearTimeout(pageRenderTimerRef.current);
+      pageRenderTimerRef.current = setTimeout(() => setPageRendering(true), 150);
+      renderPage(pdfDocument, currentPage, canvas, renderTaskRef).then(() => {
+        if (pageRenderTimerRef.current) { clearTimeout(pageRenderTimerRef.current); pageRenderTimerRef.current = null; }
+        setPageRendering(false);
+      });
 
       const { prevPage, nextPage } = getNeighborPages(currentPage);
 
@@ -850,6 +857,13 @@ export default function MangaReader({
               <canvas ref={nextCanvasRef} className="max-h-full max-w-full" />
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Page rendering spinner */}
+      {pageRendering && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+          <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
