@@ -43,6 +43,9 @@ yarn-error.log*
 /data/
 /public/covers/
 
+# tls certs
+/certs/
+
 # python
 .venv/
 __pycache__/

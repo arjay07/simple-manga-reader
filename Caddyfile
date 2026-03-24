@@ -1,6 +1,19 @@
-manga-reader-arjay07.duckdns.org {
+{$DUCKDNS_DOMAIN} {
 	tls {
 		dns duckdns {env.DUCKDNS_TOKEN}
+		resolvers 8.8.8.8
 	}
+	reverse_proxy manga-reader:3000
+}
+
+{$TAILSCALE_DOMAIN} {
+	tls {
+		dns duckdns {env.DUCKDNS_TOKEN}
+		resolvers 8.8.8.8
+	}
+	reverse_proxy manga-reader:3000
+}
+
+:80 {
 	reverse_proxy manga-reader:3000
 }

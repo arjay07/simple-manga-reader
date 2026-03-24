@@ -3,15 +3,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.caddy
+      args:
+        DNS_PLUGIN: ${DNS_PLUGIN:-github.com/caddy-dns/duckdns}
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     environment:
-      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN:?Set DUCKDNS_TOKEN in .env}
+      - DNS_TOKEN=${DNS_TOKEN:?Set DNS_TOKEN in .env}
+      - DNS_PROVIDER=${DNS_PROVIDER:-duckdns}
+      - PRIMARY_DOMAIN=${PRIMARY_DOMAIN:?Set PRIMARY_DOMAIN in .env}
+      - SECONDARY_DOMAIN=${SECONDARY_DOMAIN:-}
     depends_on:
       - manga-reader
     restart: unless-stopped
