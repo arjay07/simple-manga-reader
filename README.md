@@ -66,6 +66,40 @@ docker compose up -d --build
 |----------|---------|-------------|
 | `MANGA_DIR_HOST` | *(required)* | Path to manga folder on host |
 | `PORT` | `3000` | Port to expose the app on |
+| `GOOGLE_API_KEY` | — | Google API key for "Add from GDrive" feature |
+
+### HTTPS with Caddy (optional)
+
+The repo includes a Caddy reverse proxy configuration for automatic HTTPS via DNS challenge. This works with any DNS provider supported by [caddy-dns](https://github.com/caddy-dns).
+
+Add these to your `.env`:
+
+```env
+# Your primary domain (e.g. from DuckDNS, Cloudflare, etc.)
+PRIMARY_DOMAIN=your-domain.example.com
+
+# DNS provider name as used in Caddy (e.g. duckdns, cloudflare)
+DNS_PROVIDER=duckdns
+
+# API token for your DNS provider
+DNS_TOKEN=your-dns-token
+
+# Optional: secondary domain (e.g. for Tailscale or local network access)
+# SECONDARY_DOMAIN=your-other-domain.example.com
+
+# Optional: xcaddy plugin for your DNS provider (defaults to DuckDNS)
+# DNS_PLUGIN=github.com/caddy-dns/cloudflare
+```
+
+Then build and start with Caddy:
+
+```bash
+docker compose up -d --build
+```
+
+The `:80` block serves plain HTTP for local network access (no domain needed — just use your machine's IP). Caddy handles HTTPS termination and proxies to the app.
+
+> **Note:** Certs expire every 90 days with most providers. Caddy renews them automatically as long as the container is running.
 
 ### Data persistence
 
