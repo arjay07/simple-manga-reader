@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useGDriveProgress, type GDriveProgressState } from './useGDriveProgress';
+import { apiUrl } from '@/lib/basePath';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -84,7 +85,7 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/gdrive/start', {
+      const res = await fetch(apiUrl('/api/gdrive/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), seriesName: seriesName.trim() }),
@@ -105,7 +106,7 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
   async function handlePauseResume() {
     if (!jobId) return;
     const action = state.status === 'paused' ? 'resume' : 'pause';
-    await fetch(`/api/gdrive/${action}/${jobId}`, { method: 'POST' });
+    await fetch(apiUrl(`/api/gdrive/${action}/${jobId}`), { method: 'POST' });
   }
 
   async function handleCancel() {
@@ -114,7 +115,7 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
       return;
     }
     if (!jobId) return;
-    await fetch(`/api/gdrive/cancel/${jobId}`, { method: 'POST' });
+    await fetch(apiUrl(`/api/gdrive/cancel/${jobId}`), { method: 'POST' });
     setConfirmCancel(false);
   }
 

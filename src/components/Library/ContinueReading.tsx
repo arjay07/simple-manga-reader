@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
 import { VolumeThumbnail } from './VolumeThumbnail';
+import { apiUrl } from '@/lib/basePath';
 
 interface ProgressEntry {
   volume_id: number;
@@ -23,7 +24,7 @@ export function ContinueReading() {
   useEffect(() => {
     if (!profile) return;
 
-    fetch(`/api/progress?profileId=${profile.id}`)
+    fetch(apiUrl(`/api/progress?profileId=${profile.id}`))
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch progress');
         return res.json();
@@ -53,7 +54,7 @@ export function ContinueReading() {
       >
         <div className="relative h-20 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-border">
           <img
-            src={`/api/manga/${hero.series_id}/${hero.volume_id}/thumbnail`}
+            src={apiUrl(`/api/manga/${hero.series_id}/${hero.volume_id}/thumbnail`)}
             alt={hero.series_title}
             className="h-full w-full object-cover"
           />

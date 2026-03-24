@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { apiUrl } from '@/lib/basePath';
 
 interface SeriesCardMenuProps {
   seriesId: number;
@@ -50,7 +51,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     try {
       const formData = new FormData();
       formData.append('cover', file);
-      const res = await fetch(`/api/manga/${seriesId}/cover`, {
+      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover`), {
         method: 'POST',
         body: formData,
       });
@@ -73,7 +74,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/manga/${seriesId}/cover`, {
+      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput.trim() }),
@@ -98,7 +99,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/manga/${seriesId}/cover/generate`, {
+      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover/generate`), {
         method: 'POST',
       });
       if (!res.ok) {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiUrl } from '@/lib/basePath';
 
 export function RescanButton() {
   const [scanning, setScanning] = useState(false);
@@ -10,7 +11,7 @@ export function RescanButton() {
   async function handleRescan() {
     setScanning(true);
     try {
-      const res = await fetch('/api/manga/scan', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/manga/scan'), { method: 'POST' });
       if (res.ok) {
         router.refresh();
       }

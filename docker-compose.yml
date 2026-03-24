@@ -6,8 +6,8 @@ services:
       args:
         DNS_PLUGIN: ${DNS_PLUGIN:-github.com/caddy-dns/duckdns}
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     volumes:
       - caddy-data:/data
       - caddy-config:/config
@@ -21,9 +21,12 @@ services:
     restart: unless-stopped
 
   manga-reader:
-    build: .
-    expose:
-      - "3000"
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+    ports:
+      - "${PORT:-3000}:3000"
     volumes:
       - ${MANGA_DIR_HOST:?Set MANGA_DIR_HOST in .env to your manga folder path}:/manga
       - manga-data:/app/data

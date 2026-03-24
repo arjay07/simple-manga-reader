@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAdmin } from '@/components/AdminProvider';
+import { apiUrl } from '@/lib/basePath';
 import { GDriveDownloadFAB } from './GDriveDownloadFAB';
 import { GDriveDownloadModal } from './GDriveDownloadModal';
 import { GDriveDownloadIndicator } from './GDriveDownloadIndicator';
@@ -21,7 +22,7 @@ export function GDriveOverlay() {
   // Check for active job on mount
   useEffect(() => {
     if (!isAdmin) return;
-    fetch('/api/gdrive/status')
+    fetch(apiUrl('/api/gdrive/status'))
       .then(res => res.json())
       .then(data => {
         if (data.active && data.job?.id) {

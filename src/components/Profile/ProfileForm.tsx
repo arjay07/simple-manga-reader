@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiUrl } from '@/lib/basePath';
 
 interface Profile {
   id: number;
@@ -36,7 +37,7 @@ export default function ProfileForm({ onCreated, onCancel }: ProfileFormProps) {
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/profiles', {
+      const res = await fetch(apiUrl('/api/profiles'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed, avatar }),

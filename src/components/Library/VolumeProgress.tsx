@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
+import { apiUrl } from '@/lib/basePath';
 
 export interface ProgressMap {
   [volumeId: number]: { current_page: number; page_count: number | null; updated_at: string };
@@ -21,7 +22,7 @@ export function useVolumeProgress() {
   useEffect(() => {
     if (!profile) return;
 
-    fetch(`/api/progress?profileId=${profile.id}`)
+    fetch(apiUrl(`/api/progress?profileId=${profile.id}`))
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch');
         return res.json();

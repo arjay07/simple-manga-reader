@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiUrl } from '@/lib/basePath';
 
 interface CoverImageProps {
   series: {
@@ -27,7 +28,7 @@ export function CoverImage({ series }: CoverImageProps) {
     <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`/api/manga/${series.id}/cover`}
+        src={apiUrl(`/api/manga/${series.id}/cover`)}
         alt={series.title}
         className="h-full w-full object-cover"
         onError={() => setImgError(true)}

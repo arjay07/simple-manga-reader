@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from './ThemeProvider';
 import { useAdmin } from './AdminProvider';
 import { useProfile } from './ProfileProvider';
+import { apiUrl } from '@/lib/basePath';
 
 export function HeaderMenu() {
   const [open, setOpen] = useState(false);
@@ -45,7 +46,7 @@ export function HeaderMenu() {
   async function handleRescan() {
     setScanning(true);
     try {
-      const res = await fetch('/api/manga/scan', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/manga/scan'), { method: 'POST' });
       if (res.ok) {
         router.refresh();
       }
@@ -59,7 +60,7 @@ export function HeaderMenu() {
     setShowDirInput(true);
     setDirError('');
     try {
-      const res = await fetch('/api/settings');
+      const res = await fetch(apiUrl('/api/settings'));
       if (res.ok) {
         const data = await res.json();
         setMangaDir(data.manga_dir ?? '');
@@ -71,7 +72,7 @@ export function HeaderMenu() {
     setSavingDir(true);
     setDirError('');
     try {
-      const res = await fetch('/api/settings', {
+      const res = await fetch(apiUrl('/api/settings'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manga_dir: mangaDir }),

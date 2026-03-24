@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProfile } from '@/components/ProfileProvider';
 import ProfileForm from '@/components/Profile/ProfileForm';
+import { apiUrl } from '@/lib/basePath';
 
 interface Profile {
   id: number;
@@ -22,7 +23,7 @@ export default function ProfileSelector() {
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
-    fetch('/api/profiles')
+    fetch(apiUrl('/api/profiles'))
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch profiles');
         return res.json();

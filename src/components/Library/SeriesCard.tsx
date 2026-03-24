@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useAdmin } from '@/components/AdminProvider';
 import { SeriesCardMenu } from './SeriesCardMenu';
+import { apiUrl } from '@/lib/basePath';
 
 interface SeriesCardProps {
   id: number;
@@ -32,7 +33,7 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             key={cacheBust}
-            src={`/api/manga/${id}/cover?v=${cacheBust}`}
+            src={apiUrl(`/api/manga/${id}/cover?v=${cacheBust}`)}
             alt={title}
             className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
             onError={() => setImgError(true)}

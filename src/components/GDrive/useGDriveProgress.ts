@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { apiUrl } from '@/lib/basePath';
 
 export type FileStatus = 'queued' | 'downloading' | 'complete' | 'error' | 'skipped';
 export type JobStatus = 'listing' | 'downloading' | 'paused' | 'done' | 'cancelled' | 'error';
@@ -60,7 +61,7 @@ export function useGDriveProgress(jobId: string | null) {
       return;
     }
 
-    const es = new EventSource(`/api/gdrive/progress/${jobId}`);
+    const es = new EventSource(apiUrl(`/api/gdrive/progress/${jobId}`));
     eventSourceRef.current = es;
 
     es.addEventListener('state', (e) => {

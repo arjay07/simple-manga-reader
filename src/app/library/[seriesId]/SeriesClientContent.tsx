@@ -8,6 +8,7 @@ import { CoverImage } from './CoverImage';
 import { SeriesContinueButton } from './SeriesContinueButton';
 import { SeriesProgressBar } from './SeriesProgressBar';
 import { useAdmin } from '@/components/AdminProvider';
+import { apiUrl } from '@/lib/basePath';
 
 interface Volume {
   id: number;
@@ -60,7 +61,7 @@ export function SeriesClientContent({
     if (!confirm(`Delete "${series.title}" from the library?`)) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/manga/${series.id}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/manga/${series.id}`), { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       router.push('/library');
     } catch {
@@ -72,7 +73,7 @@ export function SeriesClientContent({
     setFetchState('loading');
     setErrorMsg('');
     try {
-      const res = await fetch(`/api/manga/${series.id}/metadata/search`);
+      const res = await fetch(apiUrl(`/api/manga/${series.id}/metadata/search`));
       if (!res.ok) {
         const data = await res.json() as { error?: string };
         throw new Error(data.error ?? 'Search failed');
@@ -96,7 +97,7 @@ export function SeriesClientContent({
     if (!selectedCandidate) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/manga/${series.id}/metadata`, {
+      const res = await fetch(apiUrl(`/api/manga/${series.id}/metadata`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

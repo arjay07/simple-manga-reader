@@ -10,6 +10,7 @@ import ReaderBottomBar from './ReaderBottomBar';
 import ReaderSettingsModal from './ReaderSettingsModal';
 import VerticalScrollView from './VerticalScrollView';
 import EndOfVolumeOverlay from './EndOfVolumeOverlay';
+import { apiUrl } from '@/lib/basePath';
 
 interface MangaReaderProps {
   seriesId: string;
@@ -131,7 +132,7 @@ export default function MangaReader({
     setLoading(true);
     setError(null);
 
-    const url = `/api/manga/${seriesId}/${volumeId}/pdf`;
+    const url = apiUrl(`/api/manga/${seriesId}/${volumeId}/pdf`);
     (async () => {
       try {
         // Polyfill Map.prototype.getOrInsertComputed (required by pdfjs-dist ≥5.5)
@@ -344,7 +345,7 @@ export default function MangaReader({
   useEffect(() => {
     if (!profileId) return;
     const timer = setTimeout(() => {
-      fetch('/api/progress', {
+      fetch(apiUrl('/api/progress'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profileId, volumeId: Number(volumeId), currentPage }),
@@ -416,9 +417,17 @@ export default function MangaReader({
       (effectiveDirection === 'ltr' ? currentPageVal <= 1 : currentPageVal >= totalPages);
 
     if (isForwardBlocked || isBackBlocked) {
-      // Trigger end/start overlay if relevant, then spring back
-      if (direction === 'forward' && currentPageVal >= totalPages) setVolumeOverlay('end');
-      if (direction === 'back' && currentPageVal <= 1 && prevVolumeId) setVolumeOverlay('start');
+      // Trigger end/start overlay if relevant, then spring back.
+      // In RTL, strip 'back' (swipe right) = reading forward; strip 'forward' (swipe left) = reading backward.
+      // So the overlay types are flipped vs LTR.
+      if (isForwardBlocked) {
+        if (effectiveDirection === 'rtl') { if (prevVolumeId) setVolumeOverlay('start'); }
+        else setVolumeOverlay('end');
+      }
+      if (isBackBlocked) {
+        if (effectiveDirection === 'rtl') setVolumeOverlay('end');
+        else if (prevVolumeId) setVolumeOverlay('start');
+      }
       setStripTransform(0, true);
       const onEnd = () => {
         strip.removeEventListener('transitionend', onEnd);
@@ -738,7 +747,7 @@ export default function MangaReader({
       if (!profileId) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        fetch(`/api/profiles/${profileId}`, {
+        fetch(apiUrl(`/api/profiles/${profileId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reader_settings: newSettings }),
