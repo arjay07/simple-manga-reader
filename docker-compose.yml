@@ -1,25 +1,4 @@
 services:
-  caddy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
-      args:
-        DNS_PLUGIN: ${DNS_PLUGIN:-github.com/caddy-dns/duckdns}
-    ports:
-      - "8080:80"
-      - "8443:443"
-    volumes:
-      - caddy-data:/data
-      - caddy-config:/config
-    environment:
-      - DNS_TOKEN=${DNS_TOKEN:?Set DNS_TOKEN in .env}
-      - DNS_PROVIDER=${DNS_PROVIDER:-duckdns}
-      - PRIMARY_DOMAIN=${PRIMARY_DOMAIN:?Set PRIMARY_DOMAIN in .env}
-      - SECONDARY_DOMAIN=${SECONDARY_DOMAIN:-}
-    depends_on:
-      - manga-reader
-    restart: unless-stopped
-
   manga-reader:
     build:
       context: .
@@ -35,10 +14,14 @@ services:
       - MANGA_DIR=/manga
       - DATABASE_PATH=data/manga-reader.db
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    networks:
+      - caddy
     restart: unless-stopped
 
 volumes:
   manga-data:
   manga-covers:
-  caddy-data:
-  caddy-config:
+
+networks:
+  caddy:
+    external: true

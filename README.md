@@ -66,7 +66,6 @@ docker compose up -d --build
 |----------|---------|-------------|
 | `MANGA_DIR_HOST` | *(required)* | Path to manga folder on host |
 | `PORT` | `3000` | Port to expose the app on |
-| `NEXT_PUBLIC_BASE_PATH` | — | URL path prefix (e.g. `/manga`). Set this when serving behind a reverse proxy at a sub-path. |
 | `GOOGLE_API_KEY` | — | Google API key for "Add from GDrive" feature |
 
 ### HTTPS with Caddy (optional)

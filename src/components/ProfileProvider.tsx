@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { apiUrl } from '@/lib/basePath';
 
 interface Profile {
   id: number;
@@ -43,7 +44,7 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    fetch(`/api/profiles/${storedId}`)
+    fetch(apiUrl(`/api/profiles/${storedId}`))
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch profile');
         return res.json();

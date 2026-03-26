@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AdminProvider } from "@/components/AdminProvider";
 import ProfileProvider from "@/components/ProfileProvider";
+import { basePath } from "@/lib/basePath";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,9 +32,9 @@ export default function RootLayout({
         <meta name="theme-color" content="#0a0a0a" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href={`${basePath}/apple-touch-icon.png`} />
+        <link rel="icon" href={`${basePath}/favicon.ico`} sizes="any" />
+        <link rel="manifest" href={`${basePath}/manifest.webmanifest`} />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -46,7 +47,7 @@ export default function RootLayout({
                 }
               })();
               if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js');
+                navigator.serviceWorker.register('${process.env.NEXT_PUBLIC_BASE_PATH || ''}/sw.js');
               }
             `,
           }}
