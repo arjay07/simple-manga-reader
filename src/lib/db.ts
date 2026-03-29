@@ -66,6 +66,19 @@ export function getDb(): Database.Database {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS panel_data (
+      id INTEGER PRIMARY KEY,
+      volume_id INTEGER REFERENCES volumes(id),
+      page_number INTEGER NOT NULL,
+      panels_json TEXT NOT NULL,
+      reading_tree_json TEXT,
+      page_type TEXT NOT NULL,
+      processing_time_ms INTEGER,
+      confidence_threshold REAL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(volume_id, page_number)
+    );
   `);
 
   // Migration: add reader_settings column if missing (existing DBs)

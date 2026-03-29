@@ -9,6 +9,9 @@ interface ReaderSettingsModalProps {
   settings: ReaderSettings;
   onSettingsChange: (settings: ReaderSettings) => void;
   isWideViewport: boolean;
+  smartPanelZoom: boolean;
+  onSmartPanelZoomChange: (value: boolean) => void;
+  hasPanelData: boolean;
 }
 
 export default function ReaderSettingsModal({
@@ -17,6 +20,9 @@ export default function ReaderSettingsModal({
   settings,
   onSettingsChange,
   isWideViewport,
+  smartPanelZoom,
+  onSmartPanelZoomChange,
+  hasPanelData,
 }: ReaderSettingsModalProps) {
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -133,6 +139,32 @@ export default function ReaderSettingsModal({
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
                     settings.verticalSnap ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Smart Panel Zoom */}
+        {!isVertical && (
+          <div className="mb-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs text-white/60 uppercase tracking-wide">Smart Panel Zoom</label>
+                {!hasPanelData && smartPanelZoom && (
+                  <p className="text-xs text-yellow-400/80 mt-0.5">No panel data for this volume</p>
+                )}
+              </div>
+              <button
+                onClick={() => onSmartPanelZoomChange(!smartPanelZoom)}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  smartPanelZoom ? 'bg-blue-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                    smartPanelZoom ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
