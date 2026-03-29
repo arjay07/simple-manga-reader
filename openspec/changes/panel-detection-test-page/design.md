@@ -8,7 +8,7 @@ PDF pages are served via `GET /api/manga/[seriesId]/[volumeId]/pdf` as streaming
 
 **Goals:**
 - Establish a server-side pipeline that extracts a single PDF page as an image and runs panel detection on it
-- Implement two detection methods (contour-based and ML-based) that produce identical output schemas for direct comparison
+- Implement ML-based panel detection with post-processing to handle borderless panels
 - Provide an admin UI to visually evaluate detection quality on any page in the library
 - Define a normalized JSON format suitable for later smart zoom consumption
 
@@ -31,68 +31,88 @@ PDF pages are served via `GET /api/manga/[seriesId]/[volumeId]/pdf` as streaming
 - Browser-side Canvas API + ONNX WASM: Simpler deployment but poor mobile performance, blocks UI thread
 - Python sidecar: Maximum flexibility but adds deployment complexity and a second runtime
 
-### 2. deepghs/manga109_yolo nano model for ML detection
+### 2. deepghs/manga109_yolo small model for ML detection
 
-**Decision:** Use the nano variant (YOLOv11, 10.5MB ONNX, F1 0.88, mAP50 0.916) from HuggingFace.
+**Decision:** Use the small variant (YOLOv11, ~38MB ONNX, mAP50 0.938) from HuggingFace.
 
-**Rationale:** Trained on Manga109 (real professional manga), ONNX file available for direct download (no Python export step), small enough to bundle or download on first use, detects `frame` class which maps directly to panel bounding boxes.
+**Rationale:** Trained on Manga109 (real professional manga), ONNX file available for direct download (no Python export step), detects `frame` class which maps directly to panel bounding boxes. Started with the nano variant (10.5MB, mAP50 0.916) but upgraded to small during testing — nano missed panels in dense layouts with dark backgrounds.
 
 **Alternatives considered:**
+- Nano variant (10.5MB): Faster but missed too many panels on complex pages
 - mosesb/best-comic-panel-detection (YOLOv12x, ~260MB): Higher accuracy but 25x larger, trained on Western comics not manga, requires manual ONNX export
-- Larger manga109_yolo variants (small/medium/large, 38-100MB): Can upgrade later if nano accuracy is insufficient
+- Medium/large variants (80-100MB): Could upgrade further if small proves insufficient
 
-### 3. Gutter projection algorithm for contour detection
+### 3. ML-only detection (contour method deprecated)
 
-**Decision:** Use row/column white-pixel projection with recursive splitting rather than full OpenCV contour detection.
+**Decision:** Focus exclusively on ML-based detection. A contour/gutter method was implemented initially for comparison but ML proved significantly better in testing.
 
-**Rationale:** Does not require OpenCV as a dependency (sharp handles image preprocessing). Projection-based gutter detection is simpler to implement and debug. Naturally degrades to "single panel" when no gutters are found, which is a safe fallback for full-bleed pages.
+**Rationale:** During side-by-side testing, the contour method consistently merged panels (missed fine gutters) and couldn't handle any irregular layouts. The ML model detected panels correctly in ~90%+ of cases. The contour code remains in the codebase but the API and UI now only use ML.
+
+### 4. Post-processing pipeline for ML detection
+
+The raw YOLO output goes through several post-processing steps discovered during iterative testing:
+
+#### 4a. Containment-based NMS
+**Decision:** In addition to standard IoU-based NMS, suppress large low-confidence boxes that contain smaller higher-confidence boxes.
+
+**Rationale:** The model sometimes produces spurious large bounding boxes covering most of the page alongside correct smaller detections. Standard NMS doesn't catch these because the IoU between a large and small box is low. Containment suppression checks if >60% of a smaller higher-confidence box falls inside a larger lower-confidence box, and removes the larger one.
+
+#### 4b. Coverage-gap inference for borderless panels
+**Decision:** After ML detection, scan for large uncovered page regions and infer them as missing panels.
+
+**Rationale:** The YOLO model is trained on panels with visible black borders. Full-bleed art, splash panels, and borderless panels produce zero detections. By checking for gaps at the top, bottom, and sides of detected panels, we infer the uncovered regions as additional panels with 0.50 confidence.
+
+**Gap detection rules:**
+- Top/bottom gaps: trigger if >10% of page height is uncovered
+- Left/right gaps: trigger only if >20% of page width is uncovered (avoids false positives on narrow margins)
+- Side gaps next to individual panels: trigger if >15% page width uncovered beside a panel
+- Adjacent inferred gaps are merged (handles borderless panels spanning multiple rows)
+- Bidirectional overlap checking: an inferred panel is rejected if >30% of ANY existing panel's area falls inside it (prevents false panels overlapping real detections)
+
+#### 4c. Debug output
+**Decision:** Include raw YOLO detection data (all classes, all confidence levels) in the API response for debugging.
+
+**Rationale:** Essential for understanding why panels are missed — allows distinguishing between "model didn't detect it at all" vs "detected with wrong class" vs "detected but filtered out."
+
+### 5. RTL reading order via row grouping with tall-panel deferral
+
+**Decision:** Replaced recursive spatial partitioning with a simpler row-based sorting approach after the former proved unreliable with overlapping bounding boxes.
+
+**Rationale:** The recursive cut algorithm failed when panels overlapped horizontally (common with imprecise ML bounding boxes). The row-based approach is more robust.
 
 **Algorithm:**
-1. sharp: render page → grayscale → adaptive threshold → raw pixel buffer
-2. Compute horizontal projection (sum white pixels per row) and vertical projection (sum per column)
-3. Find peaks above threshold (strong gutters)
-4. Recursively split the page along strongest gutters
-5. Each leaf region = one detected panel
+1. Sort panels by top edge
+2. Group into rows: panels whose top edges are within 50% of the shorter panel's height are in the same row
+3. Sort each row RTL (right edge descending)
+4. **Defer tall left-side panels:** If the leftmost panel in a row spans into subsequent rows, defer it to after the last row it overlaps with. This handles the "tall left panel + stacked right panels" pattern where right panels should be read first. Only the leftmost panel is eligible for deferral — middle and right panels stay in place.
+5. Flatten rows into final reading order
 
-### 4. Recursive spatial partitioning for reading order
+### 6. PDF page to image extraction with cross-platform fallback
 
-**Decision:** Determine RTL reading order by recursively finding clean horizontal and vertical cuts between panels.
+**Decision:** Use `pdftoppm` when available, fall back to `mupdf` (WASM) on systems without poppler.
 
-**Rationale:** Simple row-clustering fails when panels span multiple sub-rows. Recursive partitioning naturally handles L-shaped arrangements and panels spanning multiple rows/columns. The cut tree doubles as the `readingTree` output.
+**Rationale:** `pdftoppm` is already used for cover generation but isn't available on Windows by default. `pdfjs-dist` server-side rendering failed due to worker module resolution issues in Next.js bundling. `mupdf` provides reliable cross-platform PDF rendering via WASM with no native dependencies.
 
-**Algorithm:**
-1. Given a set of panel bounding boxes in a region:
-2. Try horizontal cuts (Y values between panels that don't bisect any panel) — process top-to-bottom
-3. Try vertical cuts (X values between panels that don't bisect any panel) — process right-to-left (RTL)
-4. Recurse until each sub-region contains exactly one panel
-5. If no clean cut exists, fall back to geometric sort (top-right first)
-
-### 5. Model storage strategy
+### 7. Model storage strategy
 
 **Decision:** Store the ONNX model file in a `models/` directory at the project root. Download on first use if not present.
 
-**Rationale:** The model is 10.5MB — small enough to download once, too large to commit to git. Lazy download on first API call avoids blocking app startup. The `models/` directory is gitignored.
+**Rationale:** The model is ~38MB — small enough to download once, too large to commit to git. Lazy download on first API call avoids blocking app startup. The `models/` directory is gitignored.
 
-### 6. PDF page to image extraction
+### 8. URL-driven state for the admin page
 
-**Decision:** Use pdfjs-dist on the server side (Node canvas) or shell out to `pdftoppm` (already used for covers) to extract a single page as a PNG buffer, then process with sharp.
+**Decision:** Sync series, volume, and page selection to URL query params (`?series=2&volume=24&page=7`). Auto-analyze on page load when all params are present. Prev/next navigation auto-triggers analysis.
 
-**Rationale:** `pdftoppm` is already a proven dependency in the project for cover extraction (`src/lib/pdf-utils.ts`). It produces high-quality rasterization. sharp then handles all subsequent image transformations.
-
-### 7. No database persistence for detection results
-
-**Decision:** Detection results are computed on-demand and returned in the API response. Nothing is stored in SQLite.
-
-**Rationale:** This is a test/evaluation tool. Persistence adds schema migration complexity for data that's ephemeral by nature. When smart zoom is implemented later, it may introduce a caching/persistence layer, but that's a separate decision.
+**Rationale:** Enables sharing specific page results and rapid iteration when testing — no need to re-select series/volume on every page refresh.
 
 ## Risks / Trade-offs
 
-- **[Risk] ONNX model accuracy on specific manga styles** → The nano model has F1 0.88; some styles (very irregular, artistic layouts) may have lower accuracy. Mitigation: the test page exists precisely to evaluate this. Can upgrade to small/medium variant if needed.
+- **[Risk] ONNX model accuracy on specific manga styles** → The small model has mAP50 0.938; some styles (dense dark scenes, very small panels) may have lower accuracy. Mitigation: the test page exists precisely to evaluate this. Can upgrade to medium/large variant if needed.
 
-- **[Risk] onnxruntime-node native module compilation** → Native modules can have build issues on some platforms. Mitigation: onnxruntime-node publishes prebuilt binaries for major platforms (Windows, Linux, macOS). The Docker setup may need attention.
+- **[Risk] onnxruntime-node native module compilation** → Native modules can have build issues on some platforms. Mitigation: onnxruntime-node publishes prebuilt binaries for major platforms. Windows Defender may temporarily block model loading on first use (system error 13) — resolves on retry.
 
-- **[Risk] pdftoppm not available on all systems** → Already a project dependency used for cover generation. If missing, the API returns a clear error.
-
-- **[Trade-off] Two detection methods = more code to maintain** → Justified for the evaluation phase. Once a winner is chosen, the other can be removed.
+- **[Risk] Coverage-gap inference heuristics** → False positives possible on pages with intentional whitespace or unusual layouts. The 0.50 confidence score distinguishes inferred panels from model-detected ones.
 
 - **[Trade-off] No caching of detection results** → Each analysis re-processes from scratch. Acceptable for a test tool analyzing single pages.
+
+- **[Trade-off] Reading order is heuristic-based** → The row grouping + deferral approach handles most layouts but may produce incorrect order on highly irregular or overlapping panel arrangements.
