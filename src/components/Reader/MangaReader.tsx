@@ -133,6 +133,7 @@ export default function MangaReader({
   const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClickRef = useRef(false);
+  const lastWheelNavRef = useRef(0); // throttle scroll wheel panel navigation
 
   // Smart panel zoom state
   const [smartPanelZoom, setSmartPanelZoom] = useState(() => {
@@ -144,7 +145,10 @@ export default function MangaReader({
   const [currentPanelIndex, setCurrentPanelIndex] = useState(-1); // -1 = full page view
   const currentPanelIndexRef = useRef(-1);
   const autoZoomNextPageRef = useRef(false);
-  const zoomToPanelRef = useRef<(panel: Panel) => void>(() => {});
+  const autoZoomDirectionRef = useRef<'forward' | 'back'>('forward');
+  const panelStopRef = useRef(0); // current stop index within multi-stop wide panels
+  const zoomToPanelRef = useRef<(panel: Panel, stopIndex?: number) => void>(() => {});
+  const fullDataLoadedRef = useRef(false);
 
   const handleSmartPanelZoomChange = useCallback((value: boolean) => {
     setSmartPanelZoom(value);
@@ -152,17 +156,40 @@ export default function MangaReader({
     if (!value) {
       setCurrentPanelIndex(-1);
       currentPanelIndexRef.current = -1;
+      panelStopRef.current = 0;
     }
   }, []);
 
-  // Fetch panel data when smart panel zoom is enabled
+  // Two-phase panel data fetch when smart panel zoom is enabled
   useEffect(() => {
     if (!smartPanelZoom) {
       setPanelDataMap(new Map());
       setHasPanelData(false);
+      fullDataLoadedRef.current = false;
       return;
     }
     let cancelled = false;
+    fullDataLoadedRef.current = false;
+    fetchedPagesRef.current = new Set();
+
+    // Phase 1: fetch current page + neighbors + 3 ahead for immediate use
+    const neighbors = [currentPage - 4, currentPage - 3, currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2, currentPage + 3, currentPage + 4].filter(p => p >= 1);
+    fetch(apiUrl(`/api/panel-data/${volumeId}/pages?pages=${neighbors.join(',')}`))
+      .then(r => r.json())
+      .then((data: { pages: PanelDataPage[] }) => {
+        if (cancelled) return;
+        setPanelDataMap(prev => {
+          const map = new Map(prev);
+          for (const page of data.pages) {
+            map.set(page.pageNumber, page);
+          }
+          return map;
+        });
+        if (data.pages.length > 0) setHasPanelData(true);
+      })
+      .catch(() => {});
+
+    // Phase 2: fetch full volume in background
     fetch(apiUrl(`/api/panel-data/${volumeId}`))
       .then(r => r.json())
       .then((data: PanelDataResponse) => {
@@ -173,41 +200,86 @@ export default function MangaReader({
         }
         setPanelDataMap(map);
         setHasPanelData(data.processedPages > 0);
+        fullDataLoadedRef.current = true;
       })
       .catch(() => {
         if (!cancelled) {
-          setPanelDataMap(new Map());
-          setHasPanelData(false);
+          fullDataLoadedRef.current = true;
         }
       });
+
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [smartPanelZoom, volumeId]);
 
-  // Reset panel index when page changes; auto-zoom to first panel if flagged
+  // Track which pages have been requested to avoid duplicate fetches
+  const fetchedPagesRef = useRef(new Set<number>());
+
+  // On-navigate prefetch: fire-and-forget fetches that don't cancel on page change
   useEffect(() => {
-    if (autoZoomNextPageRef.current && smartPanelZoom && hasPanelData) {
+    if (!smartPanelZoom || fullDataLoadedRef.current) return;
+    const pages = [currentPage - 4, currentPage - 3, currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2, currentPage + 3, currentPage + 4].filter(p => p >= 1);
+    const missing = pages.filter(p => !fetchedPagesRef.current.has(p));
+    if (missing.length === 0) return;
+    // Mark as requested immediately to prevent duplicate fetches
+    for (const p of missing) fetchedPagesRef.current.add(p);
+    fetch(apiUrl(`/api/panel-data/${volumeId}/pages?pages=${missing.join(',')}`))
+      .then(r => r.json())
+      .then((data: { pages: PanelDataPage[] }) => {
+        if (data.pages.length === 0) return;
+        setPanelDataMap(prev => {
+          const map = new Map(prev);
+          for (const page of data.pages) {
+            map.set(page.pageNumber, page);
+          }
+          return map;
+        });
+        setHasPanelData(true);
+      })
+      .catch(() => {
+        // On failure, remove from fetched set so they can be retried
+        for (const p of missing) fetchedPagesRef.current.delete(p);
+      });
+  // Only re-run on page change — not on panelDataMap updates
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, smartPanelZoom, volumeId]);
+
+  // On page change: handle seamless cross-page transitions OR auto-zoom into panels
+  useEffect(() => {
+    // Case 1: Seamless cross-page transition (from advancePanel/retreatPanel strip animation).
+    // Don't clear the flag here — the zoom reset effect (runs after this one)
+    // needs to see it to know not to call exitZoom. It will clear the flag.
+    if (autoZoomNextPageRef.current) {
+      return;
+    }
+
+    // Case 2: Normal page change with smart panel zoom on.
+    // Auto-zoom into the first or last panel based on navigation direction.
+    // Skip if a strip animation is in progress — the page is about to change
+    // and we don't want to re-enter zoom on the outgoing page.
+    if (smartPanelZoom && !isZoomedRef.current && !isAnimatingRef.current) {
       const pageData = panelDataMap.get(currentPage);
       if (pageData && pageData.pageType === 'panels' && pageData.panels.length > 0) {
-        // If zoom is already applied (from strip transition), just return.
-        // The render effect will see the flag and skip re-rendering, then clear it.
-        if (isZoomedRef.current && currentPanelIndexRef.current === 0) {
-          return;
-        }
-        // Otherwise, zoom to first panel (e.g., fallback path)
-        setCurrentPanelIndex(0);
-        currentPanelIndexRef.current = 0;
-        const panel = pageData.panels[0];
-        requestAnimationFrame(() => {
-          autoZoomNextPageRef.current = false;
-          zoomToPanelRef.current(panel);
-        });
+        const isBack = autoZoomDirectionRef.current === 'back';
+        const targetIdx = isBack ? pageData.panels.length - 1 : 0;
+        const panel = pageData.panels[targetIdx];
+        setCurrentPanelIndex(targetIdx);
+        currentPanelIndexRef.current = targetIdx;
+        panelStopRef.current = 0;
+        autoZoomDirectionRef.current = 'forward';
+        zoomToPanelRef.current(panel, 0);
         return;
       }
-      autoZoomNextPageRef.current = false;
     }
-    setCurrentPanelIndex(-1);
-    currentPanelIndexRef.current = -1;
-  }, [currentPage, smartPanelZoom, hasPanelData, panelDataMap]);
+    // Only reset panel index if we're not zoomed (don't clobber state
+    // set by zoomToPanel which may have completed between effect runs)
+    if (!isZoomedRef.current) {
+      setCurrentPanelIndex(-1);
+      currentPanelIndexRef.current = -1;
+      panelStopRef.current = 0;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, smartPanelZoom]);
 
   // Detect wide viewport
   useEffect(() => {
@@ -348,6 +420,43 @@ export default function MangaReader({
     } else if (autoZoomNextPageRef.current) {
       // Skip normal render — canvas is already set up by strip transition or zoomToPanel.
       // Do NOT clear the flag here — the zoom-reset effect needs to see it.
+    } else if (smartPanelZoom && !isZoomedRef.current && !isAnimatingRef.current) {
+      // Smart panel zoom auto-zoom will fire and call zoomToPanel with hi-res render.
+      // Check if this page has panel data — if so, skip the normal 1x render to avoid
+      // racing with zoomToPanel's hi-res render on the same renderTaskRef.
+      const pageData = panelDataMap.get(currentPage);
+      if (pageData && pageData.pageType === 'panels' && pageData.panels.length > 0) {
+        // Let the auto-zoom effect handle rendering the current canvas at hi-res.
+        // But still render neighbor canvases for smooth strip transitions.
+        const { prevPage, nextPage } = getNeighborPages(currentPage);
+        if (nextCanvasRef.current) {
+          renderPage(pdfDocument, nextPage, nextCanvasRef.current, nextRenderTaskRef);
+        }
+        setTimeout(() => {
+          if (prevCanvasRef.current && pdfDocument) {
+            renderPage(pdfDocument, prevPage, prevCanvasRef.current, prevRenderTaskRef);
+          }
+        }, 0);
+      } else {
+        // No panels — do normal render
+        const canvas = canvasRef.current;
+        if (pageRenderTimerRef.current) clearTimeout(pageRenderTimerRef.current);
+        pageRenderTimerRef.current = setTimeout(() => setPageRendering(true), 150);
+        renderPage(pdfDocument, currentPage, canvas, renderTaskRef).then(() => {
+          if (pageRenderTimerRef.current) { clearTimeout(pageRenderTimerRef.current); pageRenderTimerRef.current = null; }
+          setPageRendering(false);
+        });
+
+        const { prevPage, nextPage } = getNeighborPages(currentPage);
+        if (nextCanvasRef.current) {
+          renderPage(pdfDocument, nextPage, nextCanvasRef.current, nextRenderTaskRef);
+        }
+        setTimeout(() => {
+          if (prevCanvasRef.current && pdfDocument) {
+            renderPage(pdfDocument, prevPage, prevCanvasRef.current, prevRenderTaskRef);
+          }
+        }, 0);
+      }
     } else {
       // Single-page carousel: render current first, then neighbors
       const canvas = canvasRef.current;
@@ -372,7 +481,8 @@ export default function MangaReader({
         }
       }, 0);
     }
-  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage, getNeighborPages]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfDocument, currentPage, spreadMode, effectiveDirection, isVertical, renderPage, getNeighborPages, smartPanelZoom]);
 
   // Re-render paginated on resize
   useEffect(() => {
@@ -537,10 +647,25 @@ export default function MangaReader({
     const onTransitionEnd = () => {
       strip.removeEventListener('transitionend', onTransitionEnd);
       requestAnimationFrame(() => {
-        // Copy the incoming canvas into the current slot before resetting strip,
-        // so there's no flash of the old page when translateX snaps back.
-        const sourceCanvas = direction === 'forward' ? nextCanvasRef.current : prevCanvasRef.current;
+        // Before overwriting current canvas, preserve it in the neighbor slot
+        // where it belongs as a neighbor of the incoming page. This prevents
+        // a flash of stale content if the user navigates again before the
+        // async neighbor re-render completes.
         const destCanvas = canvasRef.current;
+        const sourceCanvas = direction === 'forward' ? nextCanvasRef.current : prevCanvasRef.current;
+        // The old current page becomes a neighbor of the new page:
+        // slide forward (left) → old current becomes the prev neighbor
+        // slide back (right) → old current becomes the next neighbor
+        const neighborCanvas = direction === 'forward' ? prevCanvasRef.current : nextCanvasRef.current;
+        if (destCanvas && neighborCanvas && destCanvas.width > 0) {
+          neighborCanvas.width = destCanvas.width;
+          neighborCanvas.height = destCanvas.height;
+          neighborCanvas.style.width = destCanvas.style.width;
+          neighborCanvas.style.height = destCanvas.style.height;
+          const nCtx = neighborCanvas.getContext('2d');
+          if (nCtx) nCtx.drawImage(destCanvas, 0, 0);
+        }
+        // Now copy the incoming canvas into the current slot
         if (sourceCanvas && destCanvas && sourceCanvas.width > 0) {
           destCanvas.width = sourceCanvas.width;
           destCanvas.height = sourceCanvas.height;
@@ -549,6 +674,22 @@ export default function MangaReader({
           const ctx = destCanvas.getContext('2d');
           if (ctx) ctx.drawImage(sourceCanvas, 0, 0);
         }
+        // Reset ALL zoom wrappers before snapping strip back to prevent
+        // any slot from showing content through a stale zoom transform.
+        for (const w of [zoomWrapperRef.current, prevZoomWrapperRef.current, nextZoomWrapperRef.current]) {
+          if (w) {
+            w.style.transition = 'none';
+            w.style.transform = 'none';
+          }
+        }
+        // Also reset zoom refs so the zoom reset effect doesn't exitZoom redundantly
+        if (isZoomedRef.current) {
+          zoomScaleRef.current = 1;
+          panRef.current = { x: 0, y: 0 };
+          isZoomedRef.current = false;
+          setIsZoomed(false);
+        }
+
         setStripTransform(0, false);
         commitPageChange(direction);
         isAnimatingRef.current = false;
@@ -629,6 +770,30 @@ export default function MangaReader({
     };
   }, []);
 
+  // Hit-test tap point against panel bounding boxes (with 15% margin).
+  // Returns matched panel and its index, or null if no panel was hit.
+  const hitTestPanel = useCallback((tapX: number, tapY: number): { panel: Panel; index: number } | null => {
+    if (!smartPanelZoom || !hasPanelData) return null;
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    // Convert screen coords to normalized 0-1 page coords
+    const nx = (tapX - rect.left) / rect.width;
+    const ny = (tapY - rect.top) / rect.height;
+    const pageData = panelDataMap.get(currentPage);
+    if (!pageData || pageData.pageType !== 'panels') return null;
+    for (let i = 0; i < pageData.panels.length; i++) {
+      const p = pageData.panels[i];
+      const mx = p.width * 0.15;
+      const my = p.height * 0.15;
+      if (nx >= p.x - mx && nx <= p.x + p.width + mx &&
+          ny >= p.y - my && ny <= p.y + p.height + my) {
+        return { panel: p, index: i };
+      }
+    }
+    return null;
+  }, [smartPanelZoom, hasPanelData, panelDataMap, currentPage]);
+
   const enterZoom = useCallback((tapX: number, tapY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -652,15 +817,72 @@ export default function MangaReader({
   // Reset zoom when navigating to a different page (but not during panel-zoom transitions)
   useEffect(() => {
     if (autoZoomNextPageRef.current) {
-      // Panel-zoom page transition — keep zoom, clear the flag
+      // Panel-zoom page transition — don't exit zoom. Clear the flag.
       autoZoomNextPageRef.current = false;
       return;
     }
     if (isZoomedRef.current) exitZoom(false);
   }, [currentPage, exitZoom]);
 
+  // Compute how many horizontal pan stops a panel needs and the appropriate zoom level.
+  // Wide panels get height-fit zoom split into up to 3 stops; narrow panels get fitZoom (1 stop).
+  const computeStopCount = useCallback((panel: Panel): { stopCount: number; zoom: number } => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return { stopCount: 1, zoom: 1 };
+
+    const vW = window.innerWidth;
+    const vH = container.clientHeight;
+    const cw = parseFloat(canvas.style.width) || 0;
+    const ch = parseFloat(canvas.style.height) || 0;
+    if (cw === 0 || ch === 0) return { stopCount: 1, zoom: 1 };
+
+    // Adaptive margins (same as zoomToPanel)
+    const marginX = panel.width * 0.15 * (1 - panel.width);
+    const marginY = panel.height * 0.15 * (1 - panel.height);
+    const px = Math.max(0, panel.x - marginX);
+    const py = Math.max(0, panel.y - marginY);
+    const pw = Math.min(1 - px, panel.width + marginX * 2);
+    const ph = Math.min(1 - py, panel.height + marginY * 2);
+
+    const pad = 0.9;
+    const scaleX = (vW * pad) / (pw * cw);
+    const scaleY = (vH * pad) / (ph * ch);
+    const fitZoom = Math.min(scaleX, scaleY, 5);
+    const heightZoom = Math.min(scaleY, 5);
+
+    // Only split when the panel's aspect ratio is dramatically wider than the viewport's.
+    // Ratio of 5 means the panel must be ~5x wider (proportionally) than the viewport
+    // before multi-stop kicks in — e.g., a 3:1 panel on a portrait phone.
+    const panelAspect = pw / ph;
+    const viewportAspect = vW / vH;
+    if (panelAspect / viewportAspect <= 5) {
+      return { stopCount: 1, zoom: fitZoom };
+    }
+
+    // Cap multi-stop zoom at 3x — full height-fit can be 7-8x for thin strips,
+    // which over-zooms past readability and creates too many stops.
+    const multiStopZoom = Math.min(heightZoom, 3);
+
+    const panelWidthAtZoom = pw * cw * multiStopZoom;
+    const overlapFactor = 0.85;
+    const rawStops = Math.ceil(panelWidthAtZoom / (vW * overlapFactor));
+
+    if (rawStops <= 1) {
+      return { stopCount: 1, zoom: fitZoom };
+    }
+
+    const stops = Math.min(rawStops, 3);
+    if (rawStops > 3) {
+      const reducedZoom = (3 * vW * overlapFactor) / (pw * cw);
+      return { stopCount: 3, zoom: Math.min(reducedZoom, 3) };
+    }
+
+    return { stopCount: stops, zoom: multiStopZoom };
+  }, []);
+
   // Re-render canvas at higher resolution for panel zoom, then apply zoom transform
-  const zoomToPanel = useCallback(async (panel: Panel) => {
+  const zoomToPanel = useCallback(async (panel: Panel, stopIndex: number = 0) => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || !pdfDocument) return;
@@ -672,24 +894,19 @@ export default function MangaReader({
     const cw = parseFloat(canvas.style.width) || 0;
     const ch = parseFloat(canvas.style.height) || 0;
 
-    // Expand panel bounding box by a margin to keep overflowing dialogue bubbles visible.
-    // Use 15% of the panel's dimensions, clamped to page bounds.
-    const marginX = panel.width * 0.15;
-    const marginY = panel.height * 0.15;
+    // Expand panel bounding box by an adaptive margin to keep overflowing dialogue
+    // bubbles visible. Margin scales down for larger panels so wide panels don't
+    // waste their zoom budget on empty space.
+    const marginX = panel.width * 0.15 * (1 - panel.width);
+    const marginY = panel.height * 0.15 * (1 - panel.height);
     const px = Math.max(0, panel.x - marginX);
     const py = Math.max(0, panel.y - marginY);
     const pw = Math.min(1 - px, panel.width + marginX * 2);
     const ph = Math.min(1 - py, panel.height + marginY * 2);
 
-    // Panel center (with margin) in canvas CSS coordinates
-    const ox = (px + pw / 2) * cw;
-    const oy = (py + ph / 2) * ch;
-
-    // Scale to fit padded panel in viewport
-    const pad = 0.9;
-    const scaleX = (vW * pad) / (pw * cw);
-    const scaleY = (vH * pad) / (ph * ch);
-    const zoomScale = Math.min(scaleX, scaleY, 5);
+    // Compute stop count and zoom level for this panel
+    const { stopCount, zoom: computedZoom } = computeStopCount(panel);
+    const zoomScale = computedZoom;
 
     // Re-render the canvas at higher resolution so it stays sharp when zoomed.
     // The CSS size stays the same, but the backing pixel buffer gets more pixels.
@@ -718,27 +935,112 @@ export default function MangaReader({
     // Recalculate CSS dimensions after hi-res render (may differ slightly due to rounding)
     const newCw = parseFloat(canvas.style.width) || cw;
     const newCh = parseFloat(canvas.style.height) || ch;
-    const finalOx = (px + pw / 2) * newCw;
-    const finalOy = (py + ph / 2) * newCh;
-    const finalScaleX = (vW * pad) / (pw * newCw);
-    const finalScaleY = (vH * pad) / (ph * newCh);
-    const finalZoom = Math.min(finalScaleX, finalScaleY, 5);
 
-    zoomOriginRef.current = { x: finalOx, y: finalOy };
-    zoomScaleRef.current = finalZoom;
+    // Recompute zoom with final dimensions
+    const pad = 0.9;
+    const finalMarginX = panel.width * 0.15 * (1 - panel.width);
+    const finalMarginY = panel.height * 0.15 * (1 - panel.height);
+    const finalPx = Math.max(0, panel.x - finalMarginX);
+    const finalPy = Math.max(0, panel.y - finalMarginY);
+    const finalPw = Math.min(1 - finalPx, panel.width + finalMarginX * 2);
+    const finalPh = Math.min(1 - finalPy, panel.height + finalMarginY * 2);
+
+    const finalScaleX = (vW * pad) / (finalPw * newCw);
+    const finalScaleY = (vH * pad) / (finalPh * newCh);
+    const finalFitZoom = Math.min(finalScaleX, finalScaleY, 5);
+    const finalHeightZoom = Math.min(finalScaleY, 5);
+
+    // Recompute stops with final dimensions (same aspect ratio guard as computeStopCount)
+    const overlapFactor = 0.85;
+    let finalZoom: number;
+    let finalStopCount: number;
+    if ((finalPw / finalPh) / (vW / vH) <= 5) {
+      finalZoom = finalFitZoom;
+      finalStopCount = 1;
+    } else {
+      const finalMultiZoom = Math.min(finalHeightZoom, 3);
+      const finalPanelWidthAtZoom = finalPw * newCw * finalMultiZoom;
+      const finalRawStops = Math.ceil(finalPanelWidthAtZoom / (vW * overlapFactor));
+      if (finalRawStops <= 1) {
+        finalZoom = finalFitZoom;
+        finalStopCount = 1;
+      } else if (finalRawStops <= 3) {
+        finalZoom = finalMultiZoom;
+        finalStopCount = finalRawStops;
+      } else {
+        finalStopCount = 3;
+        finalZoom = Math.min((3 * vW * overlapFactor) / (finalPw * newCw), 3);
+      }
+    }
 
     const natLeft = (vW - newCw) / 2;
     const natTop = (vH - newCh) / 2;
 
-    panRef.current = {
-      x: vW / 2 - natLeft - finalOx,
-      y: vH / 2 - natTop - finalOy,
-    };
+    if (finalStopCount <= 1) {
+      // Single stop: center the panel (original behavior)
+      const finalOx = (finalPx + finalPw / 2) * newCw;
+      const finalOy = (finalPy + finalPh / 2) * newCh;
+      zoomOriginRef.current = { x: finalOx, y: finalOy };
+      zoomScaleRef.current = finalZoom;
+      panRef.current = {
+        x: vW / 2 - natLeft - finalOx,
+        y: vH / 2 - natTop - finalOy,
+      };
+    } else {
+      // Multi-stop: zoom to height, compute per-stop horizontal pan
+      // Panel left/right edges in canvas CSS coords
+      const panelLeftCss = finalPx * newCw;
+      const panelRightCss = (finalPx + finalPw) * newCw;
+      const panelCenterY = (finalPy + finalPh / 2) * newCh;
+
+      // Use panel center as zoom origin for vertical centering
+      zoomOriginRef.current = { x: (finalPx + finalPw / 2) * newCw, y: panelCenterY };
+      zoomScaleRef.current = finalZoom;
+
+      // Viewport stride: how much we pan per stop
+      const viewportStride = vW * overlapFactor;
+
+      // panX that aligns the panel's left edge with the viewport's left edge
+      const panXLeftAligned = -natLeft - panelLeftCss * finalZoom + (panelLeftCss);
+      // Actually: we need panX such that the panel left edge (after transform) sits at viewport left.
+      // After transform: screenX = natLeft + ox*(1-s) + panX + canvasX*s
+      // We want panelLeftCss*s + natLeft + ox*(1-s) + panX = 0 (left edge at x=0)
+      // But let's use the simpler approach: compute panX to center each stop region.
+
+      // For stop i: the viewport should show the portion from startFrac to endFrac of the panel width
+      // At zoom, panel occupies panelWidthZoomed = finalPw * newCw * finalZoom pixels on screen
+      const panelWidthZoomed = finalPw * newCw * finalZoom;
+
+      // The effective stop index, accounting for RTL
+      const effectiveStop = effectiveDirection === 'rtl' ? (finalStopCount - 1 - stopIndex) : stopIndex;
+
+      // Center of stop region in panel-local zoomed coordinates
+      const stopCenterX = (effectiveStop * viewportStride) + vW / 2;
+      // Clamp so last stop doesn't overshoot
+      const clampedCenterX = Math.min(stopCenterX, panelWidthZoomed - vW / 2);
+
+      // This center maps to a point on the canvas (pre-zoom)
+      const canvasCenterX = panelLeftCss + clampedCenterX / finalZoom;
+
+      // panY centers the panel vertically
+      const panY = vW / 2 - natLeft - (finalPx + finalPw / 2) * newCw;
+      // Actually we want: panX such that canvasCenterX is at viewport center
+      // screenX of canvasCenterX = natLeft + ox*(1-s) + panX + canvasCenterX * s ... no
+      // With our transform model: translate(tx,ty) scale(s) where tx = ox*(1-s)+panX, ty = oy*(1-s)+panY
+      // Screen position of canvas point cx: natLeft + tx + cx*s = natLeft + ox*(1-s) + panX + cx*s
+      // We want this = vW/2 for cx = canvasCenterX
+      const ox = zoomOriginRef.current.x;
+      const oy = zoomOriginRef.current.y;
+      const panX = vW / 2 - natLeft - ox * (1 - finalZoom) - canvasCenterX * finalZoom;
+      const panYVal = vH / 2 - natTop - oy * (1 - finalZoom) - panelCenterY * finalZoom;
+
+      panRef.current = { x: panX, y: panYVal };
+    }
 
     isZoomedRef.current = true;
     setIsZoomed(true);
     applyZoomTransform(true);
-  }, [applyZoomTransform, pdfDocument, currentPage]);
+  }, [applyZoomTransform, pdfDocument, currentPage, computeStopCount, effectiveDirection]);
 
   zoomToPanelRef.current = zoomToPanel;
 
@@ -751,12 +1053,27 @@ export default function MangaReader({
       return false;
     }
 
-    const nextIndex = currentPanelIndexRef.current + 1;
+    // If not zoomed, always start from -1 so the first interaction enters panel 0.
+    // This handles the case where the auto-zoom effect set panelIndex but zoom
+    // hasn't applied yet (e.g., scroll event fires between effect and rAF).
+    const curIdx = isZoomedRef.current ? currentPanelIndexRef.current : -1;
+    if (curIdx >= 0 && curIdx < pageData.panels.length) {
+      const curPanel = pageData.panels[curIdx];
+      const { stopCount } = computeStopCount(curPanel);
+      if (panelStopRef.current < stopCount - 1) {
+        panelStopRef.current++;
+        zoomToPanel(curPanel, panelStopRef.current);
+        return true;
+      }
+    }
+
+    const nextIndex = curIdx + 1;
 
     if (nextIndex < pageData.panels.length) {
       setCurrentPanelIndex(nextIndex);
       currentPanelIndexRef.current = nextIndex;
-      zoomToPanel(pageData.panels[nextIndex]);
+      panelStopRef.current = 0;
+      zoomToPanel(pageData.panels[nextIndex], 0);
       return true;
     }
 
@@ -768,6 +1085,7 @@ export default function MangaReader({
       if (isZoomedRef.current) exitZoom(true);
       setCurrentPanelIndex(-1);
       currentPanelIndexRef.current = -1;
+      panelStopRef.current = 0;
       return false;
     }
 
@@ -781,12 +1099,7 @@ export default function MangaReader({
     const container = containerRef.current;
 
     if (!nextCanvas || !nextWrapper || !strip || !container || !nextPanel) {
-      // Can't do seamless transition — fall back to normal advance
-      autoZoomNextPageRef.current = true;
-      if (isZoomedRef.current) exitZoom(false);
-      setCurrentPanelIndex(-1);
-      currentPanelIndexRef.current = -1;
-      return false; // let caller goNextPage
+      return false;
     }
 
     // Pick which carousel slot to render onto based on reading direction.
@@ -806,8 +1119,8 @@ export default function MangaReader({
       const dpr = window.devicePixelRatio || 1;
 
       // Compute padded panel bounds
-      const marginX = nextPanel.width * 0.15;
-      const marginY = nextPanel.height * 0.15;
+      const marginX = nextPanel.width * 0.15 * (1 - nextPanel.width);
+      const marginY = nextPanel.height * 0.15 * (1 - nextPanel.height);
       const px = Math.max(0, nextPanel.x - marginX);
       const py = Math.max(0, nextPanel.y - marginY);
       const pw = Math.min(1 - px, nextPanel.width + marginX * 2);
@@ -820,9 +1133,27 @@ export default function MangaReader({
 
       const cssCw = baseViewport.width * baseScale;
       const cssCh = baseViewport.height * baseScale;
-      const scaleX = (vW * 0.9) / (pw * cssCw);
-      const scaleY = (vH * 0.9) / (ph * cssCh);
-      const zoomScale = Math.min(scaleX, scaleY, 5);
+      const scaleXVal = (vW * 0.9) / (pw * cssCw);
+      const scaleYVal = (vH * 0.9) / (ph * cssCh);
+      const fitZoom = Math.min(scaleXVal, scaleYVal, 5);
+      const heightZoom = Math.min(scaleYVal, 5);
+
+      // Compute stop count for next page's first panel (aspect ratio guard)
+      const overlapFactor = 0.85;
+      let preZoom: number;
+      let preStopCount: number;
+      if ((pw / ph) / (vW / vH) <= 5) {
+        preZoom = fitZoom; preStopCount = 1;
+      } else {
+        const multiZoom = Math.min(heightZoom, 3);
+        const pWidthAtZoom = pw * cssCw * multiZoom;
+        const rawStops = Math.ceil(pWidthAtZoom / (vW * overlapFactor));
+        if (rawStops <= 1) { preZoom = fitZoom; preStopCount = 1; }
+        else if (rawStops <= 3) { preZoom = multiZoom; preStopCount = rawStops; }
+        else { preStopCount = 3; preZoom = Math.min((3 * vW * overlapFactor) / (pw * cssCw), 3); }
+      }
+
+      const zoomScale = preZoom;
       const hiResScale = Math.min(zoomScale, 4);
 
       const renderScale = baseScale * dpr * hiResScale;
@@ -841,19 +1172,51 @@ export default function MangaReader({
       targetRenderTaskRef.current = { cancel: () => renderTask.cancel() };
       try { await renderTask.promise; } catch { return; }
 
-      // Compute zoom transform
+      // Compute zoom transform with final canvas dimensions
       const newCw = parseFloat(targetCanvas.style.width);
       const newCh = parseFloat(targetCanvas.style.height);
+      const fPw = pw * (newCw / cssCw); // adjust for rounding
       const ox = (px + pw / 2) * newCw;
       const oy = (py + ph / 2) * newCh;
+
+      // Recompute final zoom with actual dimensions (aspect ratio guard)
       const fScaleX = (vW * 0.9) / (pw * newCw);
       const fScaleY = (vH * 0.9) / (ph * newCh);
-      const fZoom = Math.min(fScaleX, fScaleY, 5);
+      const fFitZoom = Math.min(fScaleX, fScaleY, 5);
+      const fHeightZoom = Math.min(fScaleY, 5);
+      let fZoom: number;
+      let fStopCount: number;
+      if ((pw / ph) / (vW / vH) <= 5) {
+        fZoom = fFitZoom; fStopCount = 1;
+      } else {
+        const fMultiZoom = Math.min(fHeightZoom, 3);
+        const fPanelWidthAtZoom = pw * newCw * fMultiZoom;
+        const fRawStops = Math.ceil(fPanelWidthAtZoom / (vW * overlapFactor));
+        if (fRawStops <= 1) { fZoom = fFitZoom; fStopCount = 1; }
+        else if (fRawStops <= 3) { fZoom = fMultiZoom; fStopCount = fRawStops; }
+        else { fStopCount = 3; fZoom = Math.min((3 * vW * overlapFactor) / (pw * newCw), 3); }
+      }
 
       const natLeft = (vW - newCw) / 2;
       const natTop = (vH - newCh) / 2;
-      const panX = vW / 2 - natLeft - ox;
-      const panY = vH / 2 - natTop - oy;
+
+      let panX: number, panY: number;
+      if (fStopCount <= 1) {
+        panX = vW / 2 - natLeft - ox;
+        panY = vH / 2 - natTop - oy;
+      } else {
+        // Multi-stop: position at stop 0
+        const panelLeftCss = px * newCw;
+        const panelCenterY = (py + ph / 2) * newCh;
+        const panelWidthZoomed = pw * newCw * fZoom;
+        const viewportStride = vW * overlapFactor;
+        const effectiveStop = effectiveDirection === 'rtl' ? (fStopCount - 1) : 0;
+        const stopCenterX = Math.min(effectiveStop * viewportStride + vW / 2, panelWidthZoomed - vW / 2);
+        const canvasCenterX = panelLeftCss + stopCenterX / fZoom;
+        panX = vW / 2 - natLeft - ox * (1 - fZoom) - canvasCenterX * fZoom;
+        panY = vH / 2 - natTop - oy * (1 - fZoom) - panelCenterY * fZoom;
+      }
+
       const tx = ox * (1 - fZoom) + panX;
       const ty = oy * (1 - fZoom) + panY;
 
@@ -903,6 +1266,7 @@ export default function MangaReader({
         autoZoomNextPageRef.current = true;
         setCurrentPanelIndex(0);
         currentPanelIndexRef.current = 0;
+        panelStopRef.current = 0;
         goNextPage();
 
         // Re-apply zoom transform after React re-render settles
@@ -915,7 +1279,225 @@ export default function MangaReader({
     })();
 
     return true;
-  }, [smartPanelZoom, hasPanelData, panelDataMap, currentPage, zoomToPanel, exitZoom, effectiveDirection, applyZoomTransform, goNextPage, pdfDocument]);
+  }, [smartPanelZoom, hasPanelData, panelDataMap, currentPage, zoomToPanel, exitZoom, effectiveDirection, applyZoomTransform, goNextPage, pdfDocument, computeStopCount]);
+
+  // Navigate to previous panel (returns true if handled)
+  const retreatPanel = useCallback((): boolean => {
+    if (!smartPanelZoom || !hasPanelData) return false;
+
+    const pageData = panelDataMap.get(currentPage);
+    if (!pageData || pageData.pageType !== 'panels' || pageData.panels.length === 0) {
+      return false;
+    }
+
+    // Check if current panel has earlier stops to retreat through
+    const curIdx = currentPanelIndexRef.current;
+    if (curIdx >= 0 && curIdx < pageData.panels.length && panelStopRef.current > 0) {
+      panelStopRef.current--;
+      zoomToPanel(pageData.panels[curIdx], panelStopRef.current);
+      return true;
+    }
+
+    const prevIndex = curIdx - 1;
+
+    if (prevIndex >= 0) {
+      setCurrentPanelIndex(prevIndex);
+      currentPanelIndexRef.current = prevIndex;
+      // Enter previous panel at its last stop
+      const { stopCount } = computeStopCount(pageData.panels[prevIndex]);
+      panelStopRef.current = stopCount - 1;
+      zoomToPanel(pageData.panels[prevIndex], panelStopRef.current);
+      return true;
+    }
+
+    // At first panel — transition to previous page's last panel
+    const prevPageNum = currentPage - 1;
+    if (!pdfDocument || prevPageNum < 1) {
+      // No previous page — exit zoom and fall through (start of volume)
+      if (isZoomedRef.current) exitZoom(true);
+      setCurrentPanelIndex(-1);
+      currentPanelIndexRef.current = -1;
+      panelStopRef.current = 0;
+      return false;
+    }
+
+    const prevPageData = panelDataMap.get(prevPageNum);
+    const lastPanel = prevPageData?.pageType === 'panels' && prevPageData.panels.length > 0
+      ? prevPageData.panels[prevPageData.panels.length - 1] : null;
+    const lastPanelIndex = prevPageData ? prevPageData.panels.length - 1 : -1;
+
+    const strip = stripRef.current;
+    const container = containerRef.current;
+
+    // Pick carousel slot: reverse of advancePanel's direction
+    // LTR reading backward: previous page slides in from the left → use prev slot, slide to translateX(0)
+    // RTL reading backward: previous page slides in from the right → use next slot, slide to translateX(-200vw)
+    const useSlot = effectiveDirection === 'rtl' ? 'next' : 'prev';
+    const targetCanvas = useSlot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+    const targetWrapper = useSlot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+    const targetRenderTaskRef = useSlot === 'prev' ? prevRenderTaskRef : nextRenderTaskRef;
+    const slideTarget = useSlot === 'prev' ? 'translateX(0)' : 'translateX(-200vw)';
+
+    if (!targetCanvas || !targetWrapper || !strip || !container || !lastPanel) {
+      // Can't do seamless transition — fall back to normal page turn.
+      // Don't exit zoom here — same reason as advancePanel fallback.
+      return false;
+    }
+
+    // Pre-render previous page at hi-res onto the target slot, zoomed to last panel
+    (async () => {
+      const vW = window.innerWidth;
+      const vH = container.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+
+      const marginX = lastPanel.width * 0.15 * (1 - lastPanel.width);
+      const marginY = lastPanel.height * 0.15 * (1 - lastPanel.height);
+      const px = Math.max(0, lastPanel.x - marginX);
+      const py = Math.max(0, lastPanel.y - marginY);
+      const pw = Math.min(1 - px, lastPanel.width + marginX * 2);
+      const ph = Math.min(1 - py, lastPanel.height + marginY * 2);
+
+      const page = await pdfDocument.getPage(prevPageNum);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
+
+      const cssCw = baseViewport.width * baseScale;
+      const cssCh = baseViewport.height * baseScale;
+      const scaleXVal = (vW * 0.9) / (pw * cssCw);
+      const scaleYVal = (vH * 0.9) / (ph * cssCh);
+      const fitZoom = Math.min(scaleXVal, scaleYVal, 5);
+      const heightZoom = Math.min(scaleYVal, 5);
+
+      // Compute stop count for previous page's last panel (aspect ratio guard)
+      const overlapFactor = 0.85;
+      let preZoom: number;
+      let preStopCount: number;
+      if ((pw / ph) / (vW / vH) <= 5) {
+        preZoom = fitZoom; preStopCount = 1;
+      } else {
+        const multiZoom = Math.min(heightZoom, 3);
+        const pWidthAtZoom = pw * cssCw * multiZoom;
+        const rawStops = Math.ceil(pWidthAtZoom / (vW * overlapFactor));
+        if (rawStops <= 1) { preZoom = fitZoom; preStopCount = 1; }
+        else if (rawStops <= 3) { preZoom = multiZoom; preStopCount = rawStops; }
+        else { preStopCount = 3; preZoom = Math.min((3 * vW * overlapFactor) / (pw * cssCw), 3); }
+      }
+
+      const zoomScale = preZoom;
+      const hiResScale = Math.min(zoomScale, 4);
+
+      const renderScale = baseScale * dpr * hiResScale;
+      const hiResViewport = page.getViewport({ scale: renderScale });
+
+      targetCanvas.width = hiResViewport.width;
+      targetCanvas.height = hiResViewport.height;
+      targetCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
+      targetCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
+
+      if (targetRenderTaskRef.current) {
+        targetRenderTaskRef.current.cancel();
+        targetRenderTaskRef.current = null;
+      }
+      const renderTask = page.render({ canvas: targetCanvas, viewport: hiResViewport });
+      targetRenderTaskRef.current = { cancel: () => renderTask.cancel() };
+      try { await renderTask.promise; } catch { return; }
+
+      const newCw = parseFloat(targetCanvas.style.width);
+      const newCh = parseFloat(targetCanvas.style.height);
+      const ox = (px + pw / 2) * newCw;
+      const oy = (py + ph / 2) * newCh;
+
+      // Recompute final zoom with actual dimensions (aspect ratio guard)
+      const fFitZoom = Math.min((vW * 0.9) / (pw * newCw), (vH * 0.9) / (ph * newCh), 5);
+      const fHeightZoom = Math.min((vH * 0.9) / (ph * newCh), 5);
+      let fZoom: number;
+      let fStopCount: number;
+      if ((pw / ph) / (vW / vH) <= 5) {
+        fZoom = fFitZoom; fStopCount = 1;
+      } else {
+        const fMultiZoom = Math.min(fHeightZoom, 3);
+        const fPanelWidthAtZoom = pw * newCw * fMultiZoom;
+        const fRawStops = Math.ceil(fPanelWidthAtZoom / (vW * overlapFactor));
+        if (fRawStops <= 1) { fZoom = fFitZoom; fStopCount = 1; }
+        else if (fRawStops <= 3) { fZoom = fMultiZoom; fStopCount = fRawStops; }
+        else { fStopCount = 3; fZoom = Math.min((3 * vW * overlapFactor) / (pw * newCw), 3); }
+      }
+
+      // Target the last stop for retreat
+      const targetStopIndex = fStopCount - 1;
+
+      const natLeft = (vW - newCw) / 2;
+      const natTop = (vH - newCh) / 2;
+
+      let panX: number, panY: number;
+      if (fStopCount <= 1) {
+        panX = vW / 2 - natLeft - ox;
+        panY = vH / 2 - natTop - oy;
+      } else {
+        const panelLeftCss = px * newCw;
+        const panelCenterY = (py + ph / 2) * newCh;
+        const panelWidthZoomed = pw * newCw * fZoom;
+        const viewportStride = vW * overlapFactor;
+        const effectiveStop = effectiveDirection === 'rtl' ? (fStopCount - 1 - targetStopIndex) : targetStopIndex;
+        const stopCenterX = Math.min(effectiveStop * viewportStride + vW / 2, panelWidthZoomed - vW / 2);
+        const canvasCenterX = panelLeftCss + stopCenterX / fZoom;
+        panX = vW / 2 - natLeft - ox * (1 - fZoom) - canvasCenterX * fZoom;
+        panY = vH / 2 - natTop - oy * (1 - fZoom) - panelCenterY * fZoom;
+      }
+
+      const tx = ox * (1 - fZoom) + panX;
+      const ty = oy * (1 - fZoom) + panY;
+
+      targetWrapper.style.transition = 'none';
+      targetWrapper.style.transformOrigin = '0 0';
+      targetWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
+
+      strip.style.transition = 'transform 250ms ease-out';
+      strip.style.transform = slideTarget;
+
+      const onSlideEnd = () => {
+        strip.removeEventListener('transitionend', onSlideEnd);
+
+        const destCanvas = canvasRef.current;
+        const destWrapper = zoomWrapperRef.current;
+        if (destCanvas && destWrapper) {
+          destCanvas.width = targetCanvas.width;
+          destCanvas.height = targetCanvas.height;
+          destCanvas.style.width = targetCanvas.style.width;
+          destCanvas.style.height = targetCanvas.style.height;
+          const ctx = destCanvas.getContext('2d');
+          if (ctx) ctx.drawImage(targetCanvas, 0, 0);
+
+          destWrapper.style.transition = 'none';
+          destWrapper.style.transformOrigin = '0 0';
+          destWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
+        }
+
+        targetWrapper.style.transform = 'none';
+        strip.style.transition = 'none';
+        strip.style.transform = 'translateX(-100vw)';
+
+        zoomOriginRef.current = { x: ox, y: oy };
+        zoomScaleRef.current = fZoom;
+        panRef.current = { x: panX, y: panY };
+        isZoomedRef.current = true;
+        setIsZoomed(true);
+
+        autoZoomNextPageRef.current = true;
+        setCurrentPanelIndex(lastPanelIndex);
+        currentPanelIndexRef.current = lastPanelIndex;
+        panelStopRef.current = targetStopIndex;
+        goPrevPage();
+
+        requestAnimationFrame(() => {
+          applyZoomTransform(false);
+        });
+      };
+      strip.addEventListener('transitionend', onSlideEnd);
+    })();
+
+    return true;
+  }, [smartPanelZoom, hasPanelData, panelDataMap, currentPage, zoomToPanel, exitZoom, effectiveDirection, applyZoomTransform, goPrevPage, pdfDocument, computeStopCount]);
 
   // ── Touch handlers ──────────────────────────────────────────────────────
 
@@ -935,6 +1517,10 @@ export default function MangaReader({
     const dy = touch.clientY - touchStartRef.current.y;
 
     if (isZoomedRef.current) {
+      if (smartPanelZoom && hasPanelData) {
+        // In panel zoom mode: don't pan, let handleTouchEnd handle swipe as panel navigation
+        return;
+      }
       // Pan the zoomed canvas; clamp to page bounds
       const bounds = computePanBounds();
       panRef.current = {
@@ -947,9 +1533,14 @@ export default function MangaReader({
       return;
     }
 
+    if (smartPanelZoom && hasPanelData) {
+      // In panel mode: don't drag strip, let handleTouchEnd handle swipe direction
+      return;
+    }
+
     dragOffsetRef.current = dx;
     setStripTransform(dx, false);
-  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform]);
+  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, smartPanelZoom, hasPanelData]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -989,7 +1580,25 @@ export default function MangaReader({
             clearTimeout(tapTimerRef.current);
             tapTimerRef.current = null;
           }
-          if (isZoomedRef.current) {
+          if (smartPanelZoom && hasPanelData) {
+            if (isZoomedRef.current) {
+              // Double-tap while zoomed in panel mode: exit to full page
+              exitZoom(true);
+              setCurrentPanelIndex(-1);
+              currentPanelIndexRef.current = -1;
+              panelStopRef.current = 0;
+            } else {
+              // Double-tap on full page: hit-test panels, zoom if matched
+              const hit = hitTestPanel(touch.clientX, touch.clientY);
+              if (hit) {
+                setCurrentPanelIndex(hit.index);
+                currentPanelIndexRef.current = hit.index;
+                panelStopRef.current = 0;
+                zoomToPanel(hit.panel, 0);
+              }
+              // If no panel hit, do nothing
+            }
+          } else if (isZoomedRef.current) {
             exitZoom(true);
           } else {
             enterZoom(touch.clientX, touch.clientY);
@@ -1001,15 +1610,12 @@ export default function MangaReader({
         const tapX = touch.clientX;
         tapTimerRef.current = setTimeout(() => {
           tapTimerRef.current = null;
-          if (isZoomedRef.current && !smartPanelZoom) {
+          if (smartPanelZoom && hasPanelData) {
+            // Smart panel zoom: single tap always toggles toolbar
+            setBarsVisible((v) => !v);
+          } else if (isZoomedRef.current) {
             // While zoomed (non-panel): only toggle toolbar
             setBarsVisible((v) => !v);
-          } else if (smartPanelZoom && hasPanelData) {
-            // Smart panel zoom: advance to next panel
-            if (!advancePanel()) {
-              // All panels visited or non-panel page — turn page
-              goNextPage();
-            }
           } else if (settings.tapToTurn) {
             const ratio = tapX / window.innerWidth;
             if (ratio < 0.25) {
@@ -1026,28 +1632,65 @@ export default function MangaReader({
         return;
       }
 
-      // Non-tap gesture: if zoomed, pan was already applied in handleTouchMove
-      if (isZoomedRef.current) return;
-
-      // Carousel swipe logic
-      if (Math.abs(dx) < Math.abs(dy) * 0.5 && Math.abs(dx) < 30) {
-        springBack();
+      // Non-tap gesture (swipe)
+      const isHorizontalSwipe = Math.abs(dx) >= Math.abs(dy) * 0.5 || Math.abs(dx) >= 30;
+      if (!isHorizontalSwipe) {
+        if (!isZoomedRef.current) springBack();
         return;
       }
 
       const velocity = Math.abs(dx) / dt; // px/ms
       const isFastFlick = velocity > 0.3;
       const threshold = window.innerWidth * 0.3;
-
-      if (isFastFlick || Math.abs(dx) >= threshold) {
-        animateStrip(dx < 0 ? 'forward' : 'back');
-      } else {
-        springBack();
+      const isSwipe = isFastFlick || Math.abs(dx) >= threshold;
+      if (!isSwipe) {
+        if (!isZoomedRef.current) springBack();
+        return;
       }
+
+      // Determine swipe direction relative to reading direction
+      // dx < 0 = swiped left; dx > 0 = swiped right
+      const isForwardSwipe = effectiveDirection === 'rtl' ? dx > 0 : dx < 0;
+
+      if (smartPanelZoom && hasPanelData) {
+        if (isZoomedRef.current) {
+          // Zoomed into a panel: swipe navigates panels
+          if (isForwardSwipe) {
+            if (!advancePanel()) {
+              autoZoomDirectionRef.current = 'forward';
+              animateStrip(dx < 0 ? 'forward' : 'back');
+            }
+          } else {
+            if (!retreatPanel()) {
+              autoZoomDirectionRef.current = 'back';
+              animateStrip(dx < 0 ? 'forward' : 'back');
+            }
+          }
+        } else {
+          // Full page view with panel mode: forward swipe enters first panel
+          if (isForwardSwipe) {
+            if (!advancePanel()) {
+              autoZoomDirectionRef.current = 'forward';
+              animateStrip(dx < 0 ? 'forward' : 'back');
+            }
+          } else {
+            autoZoomDirectionRef.current = 'back';
+            animateStrip(dx < 0 ? 'forward' : 'back');
+          }
+        }
+        return;
+      }
+
+      // Not in panel mode: if zoomed, pan was already applied in handleTouchMove
+      if (isZoomedRef.current) return;
+
+      // Normal carousel swipe
+      animateStrip(dx < 0 ? 'forward' : 'back');
     },
     [isVertical, spreadMode, effectiveDirection, settings.tapToTurn,
      goNextPage, goPrevPage, animateStrip, springBack,
-     detectDoubleTap, enterZoom, exitZoom, smartPanelZoom, hasPanelData, advancePanel]
+     detectDoubleTap, enterZoom, exitZoom, smartPanelZoom, hasPanelData, advancePanel, retreatPanel,
+     hitTestPanel, zoomToPanel]
   );
 
   // Legacy swipe for spread mode (tap-based, no drag)
@@ -1105,9 +1748,35 @@ export default function MangaReader({
       if (isVertical || spreadMode) return;
       e.preventDefault();
       if (isAnimatingRef.current) return;
+
+      if (smartPanelZoom && hasPanelData) {
+        // Throttle: scroll wheel fires many events rapidly; limit panel navigation
+        // to once per 300ms to prevent blasting through panels.
+        const now = Date.now();
+        if (now - lastWheelNavRef.current < 300) return;
+        lastWheelNavRef.current = now;
+
+        const isForward = e.deltaY > 0;
+        // In RTL, reading forward = strip 'back' (higher page number)
+        const stripForward = effectiveDirection === 'rtl' ? 'back' : 'forward';
+        const stripBackward = effectiveDirection === 'rtl' ? 'forward' : 'back';
+        if (isForward) {
+          if (!advancePanel()) {
+            autoZoomDirectionRef.current = 'forward';
+            animateStrip(stripForward);
+          }
+        } else {
+          if (!retreatPanel()) {
+            autoZoomDirectionRef.current = 'back';
+            animateStrip(stripBackward);
+          }
+        }
+        return;
+      }
+
       animateStrip(e.deltaY > 0 ? 'forward' : 'back');
     },
-    [isVertical, spreadMode, animateStrip]
+    [isVertical, spreadMode, animateStrip, smartPanelZoom, hasPanelData, advancePanel, retreatPanel, effectiveDirection]
   );
 
   // Settings change handler with debounced save

@@ -86,6 +86,26 @@ export function getPanelDataForPage(volumeId: number, pageNumber: number): Panel
   };
 }
 
+export function getPanelDataForPages(volumeId: number, pageNumbers: number[]): PanelDataPage[] {
+  if (pageNumbers.length === 0) return [];
+  const capped = pageNumbers.slice(0, 10);
+  const db = getDb();
+  const placeholders = capped.map(() => '?').join(', ');
+  const rows = db.prepare(
+    `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
+     FROM panel_data WHERE volume_id = ? AND page_number IN (${placeholders})
+     ORDER BY page_number`
+  ).all(volumeId, ...capped) as PanelDataRow[];
+
+  return rows.map(row => ({
+    pageNumber: row.page_number,
+    panels: JSON.parse(row.panels_json) as Panel[],
+    readingTree: row.reading_tree_json ? JSON.parse(row.reading_tree_json) as ReadingTreeNode : null,
+    pageType: row.page_type as PageType,
+    processingTimeMs: row.processing_time_ms,
+  }));
+}
+
 export function deletePanelDataForVolume(volumeId: number): number {
   const db = getDb();
   const result = db.prepare('DELETE FROM panel_data WHERE volume_id = ?').run(volumeId);
