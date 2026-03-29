@@ -1,5 +1,8 @@
-## ADDED Requirements
+# panel-data-storage Specification
 
+## Purpose
+TBD - created by archiving change panel-data-generation. Update Purpose after archive.
+## Requirements
 ### Requirement: Panel data SQLite table
 The system SHALL store panel detection results in a `panel_data` table with columns: `id` (primary key), `volume_id` (FK to volumes), `page_number` (integer), `panels_json` (text, JSON array of Panel objects), `reading_tree_json` (text, nullable), `page_type` (text), `processing_time_ms` (integer), `confidence_threshold` (real), and `created_at` (datetime). A UNIQUE constraint SHALL exist on `(volume_id, page_number)`.
 
@@ -54,3 +57,4 @@ The system SHALL expose `DELETE /api/panel-data/:volumeId` to remove all stored 
 #### Scenario: Successful deletion
 - **WHEN** a DELETE request is made for a volume with panel data
 - **THEN** all rows for that volume SHALL be removed and the response SHALL confirm deletion with the count of deleted rows
+

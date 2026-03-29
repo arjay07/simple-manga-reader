@@ -1,11 +1,7 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Page image in response
-The API response SHALL include the rendered page image for client-side overlay display. Additionally, a standalone `GET /api/panel-detect/page-image` endpoint SHALL be available for extracting a page image without running detection.
-
-#### Scenario: Image format
-- **WHEN** a detection request completes successfully
-- **THEN** the response SHALL include a `pageImage` field containing the page rendered as a base64-encoded JPEG string
+### Requirement: Standalone page image extraction endpoint
+The system SHALL expose a `GET /api/panel-detect/page-image` endpoint for extracting a page image without running panel detection.
 
 #### Scenario: Standalone page image extraction
 - **WHEN** a GET request is made to `/api/panel-detect/page-image` with query parameters `seriesId`, `volumeId`, and `page`
