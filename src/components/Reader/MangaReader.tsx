@@ -150,6 +150,7 @@ export default function MangaReader({
   const panelStopRef = useRef(0); // current stop index within multi-stop wide panels
   const zoomToPanelRef = useRef<(panel: Panel, stopIndex?: number) => void>(() => {});
   const fullDataLoadedRef = useRef(false);
+  const panelZoomPausedRef = useRef(false); // true when user double-tapped out to full page view
 
   const handleSmartPanelZoomChange = useCallback((value: boolean) => {
     setSmartPanelZoom(value);
@@ -158,6 +159,9 @@ export default function MangaReader({
       setCurrentPanelIndex(-1);
       currentPanelIndexRef.current = -1;
       panelStopRef.current = 0;
+      panelZoomPausedRef.current = false;
+    } else {
+      panelZoomPausedRef.current = false;
     }
   }, []);
 
@@ -256,9 +260,10 @@ export default function MangaReader({
 
     // Case 2: Normal page change with smart panel zoom on.
     // Auto-zoom into the first or last panel based on navigation direction.
+    // Skip if paused (user double-tapped out to full page view).
     // Skip if a strip animation is in progress — the page is about to change
     // and we don't want to re-enter zoom on the outgoing page.
-    if (smartPanelZoom && !isZoomedRef.current && !isAnimatingRef.current) {
+    if (smartPanelZoom && !panelZoomPausedRef.current && !isZoomedRef.current && !isAnimatingRef.current) {
       const pageData = panelDataMap.get(currentPage);
       if (pageData && pageData.pageType === 'panels' && pageData.panels.length > 0) {
         const isBack = autoZoomDirectionRef.current === 'back';
@@ -1374,8 +1379,8 @@ export default function MangaReader({
       ? (direction === 'forward' ? 'back' : 'forward')
       : direction;
 
-    if (smartPanelZoom && hasPanelData && !isVertical) {
-      // Try panel-by-panel navigation first
+    if (smartPanelZoom && hasPanelData && !isVertical && !panelZoomPausedRef.current) {
+      // Try panel-by-panel navigation first (skip when user paused panel zoom)
       if (direction === 'forward') {
         if (advancePanel()) return;
       } else {
@@ -1476,8 +1481,8 @@ export default function MangaReader({
       return;
     }
 
-    if (smartPanelZoom && hasPanelData) {
-      // In panel mode (not zoomed): don't drag strip, let handleTouchEnd handle swipe direction
+    if (smartPanelZoom && hasPanelData && !panelZoomPausedRef.current) {
+      // In panel mode (not zoomed, not paused): don't drag strip, let handleTouchEnd handle swipe direction
       return;
     }
 
@@ -1523,7 +1528,8 @@ export default function MangaReader({
           }
           if (smartPanelZoom && hasPanelData) {
             if (isZoomedRef.current) {
-              // Double-tap while zoomed in panel mode: exit to full page
+              // Double-tap while zoomed in panel mode: exit to full page (pause panel zoom)
+              panelZoomPausedRef.current = true;
               exitZoom(true);
               setCurrentPanelIndex(-1);
               currentPanelIndexRef.current = -1;
@@ -1531,13 +1537,21 @@ export default function MangaReader({
             } else {
               // Double-tap on full page: hit-test panels, zoom if matched
               const hit = hitTestPanel(touch.clientX, touch.clientY);
+              const pageData = panelDataMap.get(currentPage);
               if (hit) {
+                panelZoomPausedRef.current = false;
                 setCurrentPanelIndex(hit.index);
                 currentPanelIndexRef.current = hit.index;
                 panelStopRef.current = 0;
                 zoomToPanel(hit.panel, 0);
+              } else if (pageData && pageData.pageType === 'panels' && pageData.panels.length > 0) {
+                // Double-tap on empty space: zoom to first panel
+                panelZoomPausedRef.current = false;
+                setCurrentPanelIndex(0);
+                currentPanelIndexRef.current = 0;
+                panelStopRef.current = 0;
+                zoomToPanel(pageData.panels[0], 0);
               }
-              // If no panel hit, do nothing
             }
           } else if (isZoomedRef.current) {
             exitZoom(true);
