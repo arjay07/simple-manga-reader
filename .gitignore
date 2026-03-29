@@ -53,6 +53,9 @@ __pycache__/
 # downloads
 /gdrive_downloads/
 
+# ML models
+/models/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

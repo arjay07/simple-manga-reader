@@ -11,10 +11,14 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.8.0",
+    "canvas": "^3.2.2",
+    "mupdf": "^1.27.0",
     "next": "16.1.7",
+    "onnxruntime-node": "^1.24.3",
     "pdfjs-dist": "^5.5.207",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
