@@ -188,7 +188,10 @@ export default function MangaReader({
 
     // Phase 1: fetch current page + neighbors + 3 ahead for immediate use
     const neighbors = [currentPage - 4, currentPage - 3, currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2, currentPage + 3, currentPage + 4].filter(p => p >= 1);
+    // Mark these pages as fetched so the on-navigate prefetch effect doesn't duplicate
+    for (const p of neighbors) fetchedPagesRef.current.add(p);
     fetch(apiUrl(`/api/panel-data/${volumeId}/pages?pages=${neighbors.join(',')}`))
+
       .then(r => r.json())
       .then((data: { pages: PanelDataPage[] }) => {
         if (cancelled) return;
@@ -547,7 +550,7 @@ export default function MangaReader({
           localStorage.removeItem(key);
         })
         .catch((err) => console.error('Failed to save progress:', err));
-    }, 1000);
+    }, 5000);
     return () => clearTimeout(timer);
   }, [profileId, volumeId, currentPage]);
 
