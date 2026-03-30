@@ -79,6 +79,31 @@ export function getDb(): Database.Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(volume_id, page_number)
     );
+
+    CREATE TABLE IF NOT EXISTS panel_queue (
+      id INTEGER PRIMARY KEY,
+      series_id INTEGER REFERENCES series(id),
+      status TEXT NOT NULL DEFAULT 'pending',
+      confidence_threshold REAL NOT NULL DEFAULT 0.25,
+      force INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      started_at DATETIME,
+      completed_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS panel_queue_items (
+      id INTEGER PRIMARY KEY,
+      queue_id INTEGER REFERENCES panel_queue(id) ON DELETE CASCADE,
+      volume_id INTEGER REFERENCES volumes(id),
+      sort_order INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      total_pages INTEGER DEFAULT 0,
+      processed_pages INTEGER DEFAULT 0,
+      current_page INTEGER DEFAULT 0,
+      started_at DATETIME,
+      completed_at DATETIME,
+      error TEXT
+    );
   `);
 
   // Migration: add reader_settings column if missing (existing DBs)

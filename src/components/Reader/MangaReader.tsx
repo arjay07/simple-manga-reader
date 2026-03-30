@@ -152,6 +152,15 @@ export default function MangaReader({
   const fullDataLoadedRef = useRef(false);
   const panelZoomPausedRef = useRef(false); // true when user double-tapped out to full page view
 
+  // Panel drag state for progressive swipe between panels/stops
+  interface PanelTransform { ox: number; oy: number; scale: number; panX: number; panY: number }
+  const panelDragRef = useRef<{
+    start: PanelTransform;
+    forwardTarget: PanelTransform | null;  // null = cross-page (no preview)
+    backwardTarget: PanelTransform | null;
+    isDragging: boolean;
+  } | null>(null);
+
   const handleSmartPanelZoomChange = useCallback((value: boolean) => {
     setSmartPanelZoom(value);
     localStorage.setItem('smartPanelZoom', String(value));
@@ -688,6 +697,17 @@ export default function MangaReader({
     }
   }, []);
 
+  // Apply an interpolated transform directly to the wrapper (no ref updates).
+  const applyInterpolatedTransform = useCallback((t: PanelTransform) => {
+    const wrapper = zoomWrapperRef.current;
+    if (!wrapper) return;
+    wrapper.style.transition = 'none';
+    wrapper.style.transformOrigin = '0 0';
+    const tx = t.ox * (1 - t.scale) + t.panX;
+    const ty = t.oy * (1 - t.scale) + t.panY;
+    wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${t.scale})`;
+  }, []);
+
   // Returns true if this touch is a double-tap (within 280ms and 40px of last tap).
   const detectDoubleTap = useCallback((x: number, y: number): boolean => {
     const now = Date.now();
@@ -888,6 +908,71 @@ export default function MangaReader({
     }
     return positions;
   }, [computeStopCount, effectiveDirection]);
+
+  // Compute transform params for a panel/stop using current canvas dims (no re-render).
+  const computePanelTransform = useCallback((panel: Panel, stopIndex: number): PanelTransform | null => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return null;
+
+    const vW = window.innerWidth;
+    const vH = container.clientHeight;
+    const cw = parseFloat(canvas.style.width) || 0;
+    const ch = parseFloat(canvas.style.height) || 0;
+    if (cw === 0 || ch === 0) return null;
+
+    const marginX = panel.width * 0.15 * (1 - panel.width);
+    const marginY = panel.height * 0.15 * (1 - panel.height);
+    const px = Math.max(0, panel.x - marginX);
+    const py = Math.max(0, panel.y - marginY);
+    const pw = Math.min(1 - px, panel.width + marginX * 2);
+    const ph = Math.min(1 - py, panel.height + marginY * 2);
+
+    const pad = 0.9;
+    const scaleX = (vW * pad) / (pw * cw);
+    const scaleY = (vH * pad) / (ph * ch);
+    const fitZoom = Math.min(scaleX, scaleY, 5);
+    const heightZoom = Math.min(scaleY, 5);
+    const overlapFactor = 0.85;
+
+    const panelAspect = pw / ph;
+    const viewportAspect = vW / vH;
+    let finalZoom: number;
+    let finalStopCount: number;
+
+    if (panelAspect / viewportAspect <= 5) {
+      finalZoom = fitZoom;
+      finalStopCount = 1;
+    } else {
+      const multiZoom = Math.min(heightZoom, 3);
+      const panelWidthAtZoom = pw * cw * multiZoom;
+      const rawStops = Math.ceil(panelWidthAtZoom / (vW * overlapFactor));
+      if (rawStops <= 1) { finalZoom = fitZoom; finalStopCount = 1; }
+      else if (rawStops <= 3) { finalZoom = multiZoom; finalStopCount = rawStops; }
+      else { finalStopCount = 3; finalZoom = Math.min((3 * vW * overlapFactor) / (pw * cw), 3); }
+    }
+
+    const natLeft = (vW - cw) / 2;
+    const natTop = (vH - ch) / 2;
+    const ox = (px + pw / 2) * cw;
+    const oy = (py + ph / 2) * ch;
+
+    if (finalStopCount <= 1) {
+      return { ox, oy, scale: finalZoom, panX: vW / 2 - natLeft - ox, panY: vH / 2 - natTop - oy };
+    }
+
+    // Multi-stop
+    const panelLeftCss = px * cw;
+    const panelWidthZoomed = pw * cw * finalZoom;
+    const viewportStride = vW * overlapFactor;
+    const panelCenterY = oy;
+    const effectiveStop = effectiveDirection === 'rtl' ? (finalStopCount - 1 - stopIndex) : stopIndex;
+    const stopCenterX = Math.min(effectiveStop * viewportStride + vW / 2, panelWidthZoomed - vW / 2);
+    const canvasCenterX = panelLeftCss + stopCenterX / finalZoom;
+    const panX = vW / 2 - natLeft - ox * (1 - finalZoom) - canvasCenterX * finalZoom;
+    const panY = vH / 2 - natTop - oy * (1 - finalZoom) - panelCenterY * finalZoom;
+    return { ox, oy, scale: finalZoom, panX, panY };
+  }, [effectiveDirection]);
 
   // Re-render canvas at higher resolution for panel zoom, then apply zoom transform
   const zoomToPanel = useCallback(async (panel: Panel, stopIndex: number = 0) => {
@@ -1445,9 +1530,44 @@ export default function MangaReader({
     if (isAnimatingRef.current && !isZoomedRef.current) return;
     const touch = e.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    // Snapshot current pan for multi-stop panel panning
+    // Snapshot current pan for panel drag and regular zoom panning
     panStartRef.current = { x: panRef.current.x, y: panRef.current.y };
-  }, [isVertical, spreadMode]);
+
+    // Cache panel drag state: current transform + forward/backward targets
+    panelDragRef.current = null;
+    if (smartPanelZoom && hasPanelData && isZoomedRef.current) {
+      const pageData = panelDataMap.get(currentPage);
+      const curIdx = currentPanelIndexRef.current;
+      if (pageData && curIdx >= 0 && curIdx < pageData.panels.length) {
+        const curPanel = pageData.panels[curIdx];
+        const curStop = panelStopRef.current;
+        const start = computePanelTransform(curPanel, curStop);
+        if (!start) return;
+
+        const { stopCount } = computeStopCount(curPanel);
+
+        // Forward target: next stop or next panel
+        let forwardTarget: PanelTransform | null = null;
+        if (curStop < stopCount - 1) {
+          forwardTarget = computePanelTransform(curPanel, curStop + 1);
+        } else if (curIdx + 1 < pageData.panels.length) {
+          forwardTarget = computePanelTransform(pageData.panels[curIdx + 1], 0);
+        }
+
+        // Backward target: prev stop or prev panel (last stop)
+        let backwardTarget: PanelTransform | null = null;
+        if (curStop > 0) {
+          backwardTarget = computePanelTransform(curPanel, curStop - 1);
+        } else if (curIdx - 1 >= 0) {
+          const prevPanel = pageData.panels[curIdx - 1];
+          const { stopCount: prevStops } = computeStopCount(prevPanel);
+          backwardTarget = computePanelTransform(prevPanel, prevStops - 1);
+        }
+
+        panelDragRef.current = { start, forwardTarget, backwardTarget, isDragging: false };
+      }
+    }
+  }, [isVertical, spreadMode, smartPanelZoom, hasPanelData, panelDataMap, currentPage, computePanelTransform, computeStopCount]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (isVertical || spreadMode || !touchStartRef.current) return;
@@ -1456,17 +1576,39 @@ export default function MangaReader({
     const dy = touch.clientY - touchStartRef.current.y;
 
     if (isZoomedRef.current) {
+      if (smartPanelZoom && hasPanelData && panelDragRef.current) {
+        // Panel swipe: interpolate between current and target panel/stop transform
+        const drag = panelDragRef.current;
+        const deadZone = 20;
+        if (Math.abs(dx) < deadZone) return;
+        drag.isDragging = true;
+        const adjustedDx = dx - Math.sign(dx) * deadZone;
+        const isForward = effectiveDirection === 'rtl' ? adjustedDx > 0 : adjustedDx < 0;
+        const target = isForward ? drag.forwardTarget : drag.backwardTarget;
+        const threshold = window.innerWidth * 0.4;
+        const progress = Math.min(Math.abs(adjustedDx) / threshold, 1);
+
+        if (!target) {
+          // Cross-page: rubber-band with resistance
+          const resistance = 0.15;
+          const t = { ...drag.start, panX: drag.start.panX + adjustedDx * resistance };
+          applyInterpolatedTransform(t);
+          return;
+        }
+
+        // Lerp all transform params toward the target
+        const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
+        const s = drag.start;
+        applyInterpolatedTransform({
+          ox: lerp(s.ox, target.ox, progress),
+          oy: lerp(s.oy, target.oy, progress),
+          scale: lerp(s.scale, target.scale, progress),
+          panX: lerp(s.panX, target.panX, progress),
+          panY: lerp(s.panY, target.panY, progress),
+        });
+        return;
+      }
       if (smartPanelZoom && hasPanelData) {
-        // Require a deliberate horizontal drag before panning starts (40px dead zone)
-        if (Math.abs(dx) < 40) return;
-        const adjustedDx = dx - Math.sign(dx) * 40; // subtract dead zone so pan starts from 0
-        // Pan freely within page bounds — panning past a panel reveals neighboring panels
-        const bounds = computePanBounds();
-        panRef.current = {
-          x: Math.min(bounds.maxX, Math.max(bounds.minX, panStartRef.current.x + adjustedDx)),
-          y: panStartRef.current.y,
-        };
-        applyZoomTransform(false);
         return;
       }
       // Pan the zoomed canvas; clamp to page bounds
@@ -1488,7 +1630,7 @@ export default function MangaReader({
 
     dragOffsetRef.current = dx;
     setStripTransform(dx, false);
-  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, smartPanelZoom, hasPanelData]);
+  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, applyInterpolatedTransform, smartPanelZoom, hasPanelData, effectiveDirection]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -1589,69 +1731,47 @@ export default function MangaReader({
 
       // Non-tap gesture (swipe/pan)
 
-      // Panel panning: snap to current panel's nearest stop, or navigate if panned past it
+      // Panel drag: commit navigation or snap back based on drag progress
       if (smartPanelZoom && hasPanelData && isZoomedRef.current) {
-        const pageData = panelDataMap.get(currentPage);
-        const curIdx = currentPanelIndexRef.current;
-        if (pageData && curIdx >= 0 && curIdx < pageData.panels.length) {
-          const panel = pageData.panels[curIdx];
-          const positions = computeStopPanPositions(panel);
-          const curPanX = panRef.current.x;
-          const velocity = dx / dt; // px/ms (signed)
+        const drag = panelDragRef.current;
+        panelDragRef.current = null;
 
-          const firstStopX = positions[0];
-          const lastStopX = positions[positions.length - 1];
-          const flickThreshold = 0.3; // px/ms
-          const movingForward = effectiveDirection === 'rtl' ? velocity > 0 : velocity < 0;
-          const movingBackward = effectiveDirection === 'rtl' ? velocity < 0 : velocity > 0;
-          const flickForward = effectiveDirection === 'rtl' ? velocity > flickThreshold : velocity < -flickThreshold;
-          const flickBackward = effectiveDirection === 'rtl' ? velocity < -flickThreshold : velocity > flickThreshold;
+        // Helper to restore zoom refs to the start transform before navigating/snapping
+        const restoreStart = () => {
+          if (!drag) return;
+          zoomOriginRef.current = { x: drag.start.ox, y: drag.start.oy };
+          zoomScaleRef.current = drag.start.scale;
+          panRef.current = { x: drag.start.panX, y: drag.start.panY };
+        };
 
-          // Navigate if panned past the panel's stop range AND still moving that direction
-          const forwardEdgeX = effectiveDirection === 'rtl' ? firstStopX : lastStopX;
-          const backwardEdgeX = effectiveDirection === 'rtl' ? lastStopX : firstStopX;
-          const pastForwardEdge = effectiveDirection === 'rtl'
-            ? curPanX > forwardEdgeX + 30
-            : curPanX < forwardEdgeX - 30;
-          const pastBackwardEdge = effectiveDirection === 'rtl'
-            ? curPanX < backwardEdgeX - 30
-            : curPanX > backwardEdgeX + 30;
+        const deadZone = 20;
+        const commitThreshold = window.innerWidth * 0.2;
+        const isVerticalSwipe = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) >= 30;
 
-          if (pastForwardEdge && movingForward) { navigateReading('forward'); return; }
-          if (pastBackwardEdge && movingBackward) { navigateReading('back'); return; }
-
-          // Flick at edge stop — navigate even without panning past
-          const atLastStop = panelStopRef.current >= positions.length - 1;
-          const atFirstStop = panelStopRef.current <= 0;
-          if (flickForward && atLastStop) { navigateReading('forward'); return; }
-          if (flickBackward && atFirstStop) { navigateReading('back'); return; }
-
-          // Vertical swipe: swipe up → forward (at last stop), swipe down → backward (at first stop)
-          const isVerticalSwipe = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 30;
-          if (isVerticalSwipe) {
-            const atLastStop = panelStopRef.current >= positions.length - 1;
-            const atFirstStop = panelStopRef.current <= 0;
-            if (dy < 0 && atLastStop) { navigateReading('forward'); return; }
-            if (dy > 0 && atFirstStop) { navigateReading('back'); return; }
-          }
-
-          // Snap to nearest stop within current panel (with velocity bias)
-          let nearestIdx = 0;
-          let nearestDist = Infinity;
-          const projectedX = curPanX + velocity * 100;
-          for (let i = 0; i < positions.length; i++) {
-            const dist = Math.min(Math.abs(curPanX - positions[i]), Math.abs(projectedX - positions[i]));
-            if (dist < nearestDist) {
-              nearestDist = dist;
-              nearestIdx = i;
-            }
-          }
-
-          panelStopRef.current = nearestIdx;
-          panRef.current = { x: positions[nearestIdx], y: panRef.current.y };
-          applyZoomTransform(true);
+        if (isVerticalSwipe) {
+          if (drag?.isDragging) restoreStart();
+          navigateReading(dy < 0 ? 'forward' : 'back');
           return;
         }
+
+        const velocity = Math.abs(dx) / dt; // px/ms
+        const isFastFlick = velocity > 0.3;
+        const adjustedDx = Math.abs(dx) > deadZone ? dx - Math.sign(dx) * deadZone : 0;
+        const isForward = effectiveDirection === 'rtl' ? adjustedDx > 0 : adjustedDx < 0;
+        const shouldCommit = isFastFlick || Math.abs(adjustedDx) >= commitThreshold;
+
+        if (shouldCommit && Math.abs(dx) >= deadZone) {
+          if (drag?.isDragging) restoreStart();
+          navigateReading(isForward ? 'forward' : 'back');
+          return;
+        }
+
+        // Snap back: restore refs and animate to start transform
+        if (drag?.isDragging) {
+          restoreStart();
+          applyZoomTransform(true);
+        }
+        return;
       }
 
       const isHorizontalSwipe = Math.abs(dx) >= Math.abs(dy) * 0.5 || Math.abs(dx) >= 30;
@@ -1685,10 +1805,9 @@ export default function MangaReader({
       navigateReading(isForwardSwipe ? 'forward' : 'back');
     },
     [isVertical, spreadMode, effectiveDirection, settings.tapToTurn,
-     navigateReading, springBack,
+     navigateReading, springBack, applyZoomTransform,
      detectDoubleTap, enterZoom, exitZoom, smartPanelZoom, hasPanelData,
-     hitTestPanel, zoomToPanel, panelDataMap, currentPage, computeStopCount,
-     computeStopPanPositions, applyZoomTransform, computePanBounds]
+     hitTestPanel, zoomToPanel, panelDataMap, currentPage]
   );
 
   // Legacy swipe for spread mode (tap-based, no drag)

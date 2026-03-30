@@ -1,4 +1,4 @@
-import * as ort from 'onnxruntime-node';
+import type * as ortTypes from 'onnxruntime-node';
 import sharp from 'sharp';
 import { getModelPath, isModelDownloaded, downloadModel } from './model-downloader';
 import type { RawPanel, PageType } from './types';
@@ -10,16 +10,24 @@ const MODEL_INPUT_SIZE = 640;
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.25;
 const NMS_IOU_THRESHOLD = 0.45;
 
-let session: ort.InferenceSession | null = null;
+let ort: typeof ortTypes | null = null;
+let session: ortTypes.InferenceSession | null = null;
 
-async function getSession(): Promise<ort.InferenceSession> {
+async function getOrt(): Promise<typeof ortTypes> {
+  if (ort) return ort;
+  ort = await import('onnxruntime-node');
+  return ort;
+}
+
+async function getSession(): Promise<ortTypes.InferenceSession> {
   if (session) return session;
 
   if (!isModelDownloaded()) {
     await downloadModel();
   }
 
-  session = await ort.InferenceSession.create(getModelPath(), {
+  const ortModule = await getOrt();
+  session = await ortModule.InferenceSession.create(getModelPath(), {
     executionProviders: ['cpu'],
   });
   return session;
@@ -49,7 +57,7 @@ export async function detectPanelsMl(
   const { tensor, scale, padX, padY } = await preprocessImage(imageBuffer, origWidth, origHeight);
 
   // Run inference
-  const feeds: Record<string, ort.Tensor> = { images: tensor };
+  const feeds: Record<string, ortTypes.Tensor> = { images: tensor };
   const results = await sess.run(feeds);
 
   // Parse YOLO output
@@ -113,7 +121,7 @@ async function preprocessImage(
   imageBuffer: Buffer,
   origWidth: number,
   origHeight: number
-): Promise<{ tensor: ort.Tensor; scale: number; padX: number; padY: number }> {
+): Promise<{ tensor: ortTypes.Tensor; scale: number; padX: number; padY: number }> {
   // Calculate scale to fit within MODEL_INPUT_SIZE while maintaining aspect ratio
   const scale = Math.min(MODEL_INPUT_SIZE / origWidth, MODEL_INPUT_SIZE / origHeight);
   const newWidth = Math.round(origWidth * scale);
@@ -149,7 +157,8 @@ async function preprocessImage(
     floatData[2 * pixelCount + i] = pixels[i * 3 + 2] / 255; // B channel
   }
 
-  const tensor = new ort.Tensor('float32', floatData, [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]);
+  const ortModule = await getOrt();
+  const tensor = new ortModule.Tensor('float32', floatData, [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]);
   return { tensor, scale, padX, padY };
 }
 

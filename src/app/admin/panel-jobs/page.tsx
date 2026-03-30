@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { apiUrl } from '@/lib/basePath';
 import { DetectionCanvas } from '@/components/DetectionCanvas';
-import type { Panel, DetectionResult } from '@/lib/panel-detect/types';
+import type { Panel } from '@/lib/panel-detect/types';
 
 interface Series {
   id: number;
@@ -26,28 +26,54 @@ interface SeriesDetail {
   volumes: Volume[];
 }
 
-interface PageSummary {
-  pageNumber: number;
-  panelCount: number;
-  pageType: string;
-  processingTimeMs: number;
+interface PanelDataStatus {
+  totalPages: number;
+  processedPages: number;
+  isComplete: boolean;
+}
+
+interface QueueItemState {
+  id: number;
+  volumeId: number;
+  volumeTitle: string;
+  sortOrder: number;
+  status: string;
+  totalPages: number;
+  processedPages: number;
+  currentPage: number;
   error?: string;
 }
 
 interface JobState {
-  status: 'idle' | 'running' | 'paused' | 'completed' | 'error';
-  volumeId?: number;
-  volumeTitle?: string;
-  seriesTitle?: string;
+  status: string;
   totalPages: number;
   processedPages: number;
   skippedPages: number;
   currentPage: number;
-  startedAt?: number;
   pagesPerSecond: number;
+  pages: Array<{
+    pageNumber: number;
+    panelCount: number;
+    pageType: string;
+    processingTimeMs: number;
+    error?: string;
+  }>;
+}
+
+interface QueueState {
+  status: string;
+  queueId?: number;
+  seriesId?: number;
+  seriesTitle?: string;
   confidenceThreshold: number;
-  pages: PageSummary[];
-  error?: string;
+  force: boolean;
+  items: QueueItemState[];
+  totalVolumes: number;
+  completedVolumes: number;
+  currentVolume?: QueueItemState;
+  currentJobState?: JobState;
+  startedAt?: number;
+  createdAt?: string;
 }
 
 interface PreviewData {
@@ -73,13 +99,15 @@ function PanelJobsPage() {
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [selectedSeries, setSelectedSeries] = useState('');
   const [volumes, setVolumes] = useState<Volume[]>([]);
-  const [selectedVolume, setSelectedVolume] = useState('');
+  const [checkedVolumes, setCheckedVolumes] = useState<Set<number>>(new Set());
+  const [panelStatus, setPanelStatus] = useState<Record<number, PanelDataStatus>>({});
   const [confidence, setConfidence] = useState(0.25);
   const [force, setForce] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [job, setJob] = useState<JobState | null>(null);
+  const [queue, setQueue] = useState<QueueState | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
+  const [previewVolumeId, setPreviewVolumeId] = useState<number | null>(null);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -92,24 +120,31 @@ function PanelJobsPage() {
       .catch(() => setError('Failed to load series'));
   }, []);
 
-  // Fetch volumes when series changes
+  // Fetch volumes + panel data status when series changes
   useEffect(() => {
-    if (!selectedSeries) { setVolumes([]); setSelectedVolume(''); return; }
-    fetch(apiUrl(`/api/manga/${selectedSeries}`))
-      .then(r => r.json())
-      .then((data: SeriesDetail) => {
-        setVolumes(data.volumes ?? []);
-        setSelectedVolume('');
-      })
-      .catch(() => setError('Failed to load volumes'));
+    if (!selectedSeries) {
+      setVolumes([]);
+      setCheckedVolumes(new Set());
+      setPanelStatus({});
+      return;
+    }
+
+    Promise.all([
+      fetch(apiUrl(`/api/manga/${selectedSeries}`)).then(r => r.json()),
+      fetch(apiUrl(`/api/panel-queue/series-status?seriesId=${selectedSeries}`)).then(r => r.json()),
+    ]).then(([seriesData, statusData]: [SeriesDetail, Record<number, PanelDataStatus>]) => {
+      setVolumes(seriesData.volumes ?? []);
+      setPanelStatus(statusData);
+      setCheckedVolumes(new Set());
+    }).catch(() => setError('Failed to load volumes'));
   }, [selectedSeries]);
 
-  // Poll job status
-  const pollJob = useCallback(async () => {
+  // Poll queue status
+  const pollQueue = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/panel-jobs/current'));
-      const data: JobState = await res.json();
-      setJob(data);
+      const res = await fetch(apiUrl('/api/panel-queue/current'));
+      const data: QueueState = await res.json();
+      setQueue(data);
       if (data.status !== 'running' && data.status !== 'paused') {
         stopPolling();
       }
@@ -120,9 +155,9 @@ function PanelJobsPage() {
 
   const startPolling = useCallback(() => {
     stopPolling();
-    pollRef.current = setInterval(pollJob, 2000);
-    pollJob(); // immediate first poll
-  }, [pollJob]);
+    pollRef.current = setInterval(pollQueue, 2000);
+    pollQueue();
+  }, [pollQueue]);
 
   function stopPolling() {
     if (pollRef.current) {
@@ -131,74 +166,89 @@ function PanelJobsPage() {
     }
   }
 
-  // Check for active job on mount
+  // Check for active queue on mount
   useEffect(() => {
-    pollJob();
+    pollQueue();
     return stopPolling;
-  }, [pollJob]);
+  }, [pollQueue]);
 
-  // Start polling when job becomes active
+  // Start polling when queue becomes active
   useEffect(() => {
-    if (job?.status === 'running' || job?.status === 'paused') {
+    if (queue?.status === 'running' || queue?.status === 'paused') {
       if (!pollRef.current) startPolling();
     }
-  }, [job?.status, startPolling]);
+  }, [queue?.status, startPolling]);
 
-  const startJob = async () => {
+  // Volume checkbox handlers
+  const toggleVolume = (volumeId: number) => {
+    setCheckedVolumes(prev => {
+      const next = new Set(prev);
+      if (next.has(volumeId)) next.delete(volumeId);
+      else next.add(volumeId);
+      return next;
+    });
+  };
+
+  const selectAll = () => setCheckedVolumes(new Set(volumes.map(v => v.id)));
+  const selectNone = () => setCheckedVolumes(new Set());
+  const allSelected = volumes.length > 0 && checkedVolumes.size === volumes.length;
+
+  const startQueue = async () => {
     setError(null);
     try {
-      const res = await fetch(apiUrl('/api/panel-jobs'), {
+      const res = await fetch(apiUrl('/api/panel-queue'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          volumeId: selectedVolume,
+          seriesId: Number(selectedSeries),
+          volumeIds: Array.from(checkedVolumes),
           confidenceThreshold: confidence,
           force,
         }),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error ?? 'Failed to start job');
+        throw new Error(err.error ?? 'Failed to start queue');
       }
-      const data: JobState = await res.json();
-      setJob(data);
+      const data: QueueState = await res.json();
+      setQueue(data);
       startPolling();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     }
   };
 
-  const pauseJob = async () => {
-    const res = await fetch(apiUrl('/api/panel-jobs/current/pause'), { method: 'POST' });
-    if (res.ok) setJob(await res.json());
+  const pauseQueue = async () => {
+    const res = await fetch(apiUrl('/api/panel-queue/pause'), { method: 'POST' });
+    if (res.ok) setQueue(await res.json());
   };
 
-  const resumeJob = async () => {
-    const res = await fetch(apiUrl('/api/panel-jobs/current/resume'), { method: 'POST' });
+  const resumeQueue = async () => {
+    const res = await fetch(apiUrl('/api/panel-queue/resume'), { method: 'POST' });
     if (res.ok) {
-      setJob(await res.json());
+      setQueue(await res.json());
       startPolling();
     }
   };
 
-  const cancelJob = async () => {
-    const res = await fetch(apiUrl('/api/panel-jobs/current/cancel'), { method: 'POST' });
-    if (res.ok) setJob(await res.json());
+  const cancelQueue = async () => {
+    const res = await fetch(apiUrl('/api/panel-queue/cancel'), { method: 'POST' });
+    if (res.ok) setQueue(await res.json());
   };
 
   // Preview modal
-  const openPreview = (pageNum: number) => {
+  const openPreview = (volumeId: number, pageNum: number) => {
     setPreviewOpen(true);
+    setPreviewVolumeId(volumeId);
     setPreviewPage(pageNum);
-    loadPreviewPage(pageNum);
+    loadPreviewPage(volumeId, pageNum);
   };
 
-  const loadPreviewPage = async (pageNum: number) => {
-    if (!job?.volumeId) return;
+  const loadPreviewPage = async (volumeId: number, pageNum: number) => {
     setPreviewLoading(true);
     setPreviewData(null);
     try {
-      const res = await fetch(apiUrl(`/api/panel-data/${job.volumeId}/${pageNum}`));
+      const res = await fetch(apiUrl(`/api/panel-data/${volumeId}/${pageNum}`));
       if (res.ok) {
         setPreviewData(await res.json());
       }
@@ -209,36 +259,39 @@ function PanelJobsPage() {
     }
   };
 
-  const previewNav = (delta: number) => {
-    if (!job) return;
-    const processedPageNumbers = job.pages.filter(p => !p.error).map(p => p.pageNumber);
-    const idx = processedPageNumbers.indexOf(previewPage);
-    const newIdx = idx + delta;
-    if (newIdx >= 0 && newIdx < processedPageNumbers.length) {
-      const newPage = processedPageNumbers[newIdx];
-      setPreviewPage(newPage);
-      loadPreviewPage(newPage);
-    }
-  };
+  const isActive = queue?.status === 'running' || queue?.status === 'paused';
 
-  const isActive = job?.status === 'running' || job?.status === 'paused';
-  const progressPercent = job && job.totalPages > 0
-    ? Math.round((job.processedPages / job.totalPages) * 100)
+  // Compute progress
+  const jobState = queue?.currentJobState;
+  const overallProgress = queue && queue.totalVolumes > 0
+    ? Math.round((queue.completedVolumes / queue.totalVolumes) * 100)
     : 0;
 
-  const elapsed = job?.startedAt ? (Date.now() - job.startedAt) / 1000 : 0;
-  const remaining = job && job.pagesPerSecond > 0
-    ? Math.round((job.totalPages - job.processedPages) / job.pagesPerSecond)
-    : null;
+  const currentItemProgress = jobState && jobState.totalPages > 0
+    ? Math.round((jobState.processedPages / jobState.totalPages) * 100)
+    : 0;
 
-  const processedPageNumbers = job?.pages.filter(p => !p.error).map(p => p.pageNumber) ?? [];
-  const previewIdx = processedPageNumbers.indexOf(previewPage);
+  const elapsed = queue?.startedAt ? (Date.now() - queue.startedAt) / 1000 : 0;
+
+  // ETA: estimate based on current volume speed and remaining volumes
+  const totalPagesRemaining = queue?.items
+    .filter(i => i.status === 'pending' || i.status === 'running')
+    .reduce((sum, i) => {
+      if (i.status === 'running' && jobState) {
+        return sum + (jobState.totalPages - jobState.processedPages);
+      }
+      return sum + i.totalPages;
+    }, 0) ?? 0;
+
+  const eta = jobState && jobState.pagesPerSecond > 0
+    ? Math.round(totalPagesRemaining / jobState.pagesPerSecond)
+    : null;
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Panel Data Generation</h1>
 
-      {/* Controls */}
+      {/* Series Selector */}
       <div className="flex flex-wrap gap-4 items-end mb-4">
         <div className="flex flex-col gap-1">
           <label className="text-sm text-muted">Series</label>
@@ -256,35 +309,60 @@ function PanelJobsPage() {
             ))}
           </select>
         </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-sm text-muted">Volume</label>
-          <select
-            value={selectedVolume}
-            onChange={e => setSelectedVolume(e.target.value)}
-            disabled={volumes.length === 0 || isActive}
-            className="bg-surface border border-border rounded px-3 py-2 text-sm min-w-[200px] disabled:opacity-50"
-          >
-            <option value="">Select volume...</option>
-            {volumes.map(v => (
-              <option key={v.id} value={v.id}>
-                {v.title}{v.page_count ? ` (${v.page_count}p)` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          onClick={startJob}
-          disabled={!selectedVolume || isActive}
-          className="bg-accent text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors"
-        >
-          Generate
-        </button>
       </div>
 
+      {/* Volume Checkboxes */}
+      {volumes.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-3 mb-2">
+            <label className="text-sm text-muted">Volumes</label>
+            <button
+              onClick={allSelected ? selectNone : selectAll}
+              disabled={isActive}
+              className="text-xs text-accent hover:text-accent-hover disabled:opacity-50"
+            >
+              {allSelected ? 'Select None' : 'Select All'}
+            </button>
+          </div>
+          <div className="bg-surface border border-border rounded divide-y divide-border max-h-[300px] overflow-y-auto">
+            {volumes.map(v => {
+              const status = panelStatus[v.id];
+              const hasData = status && status.processedPages > 0;
+              const isComplete = status?.isComplete;
+
+              return (
+                <label
+                  key={v.id}
+                  className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-surface-elevated transition-colors ${isActive ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedVolumes.has(v.id)}
+                    onChange={() => toggleVolume(v.id)}
+                    disabled={isActive}
+                    className="accent-accent"
+                  />
+                  <span className="flex-1">{v.title}</span>
+                  {v.page_count && (
+                    <span className="text-xs text-muted">{v.page_count}p</span>
+                  )}
+                  {isComplete && (
+                    <span className="text-xs text-green-400" title="Panel data complete">&#10003;</span>
+                  )}
+                  {hasData && !isComplete && (
+                    <span className="text-xs text-yellow-400" title={`${status.processedPages}/${status.totalPages} pages`}>
+                      partial
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Confidence + Force */}
-      <div className="flex flex-wrap items-center gap-6 mb-6">
+      <div className="flex flex-wrap items-center gap-6 mb-4">
         <div className="flex items-center gap-3">
           <label className="text-sm text-muted whitespace-nowrap">Confidence</label>
           <input
@@ -309,98 +387,145 @@ function PanelJobsPage() {
         </label>
       </div>
 
+      {/* Generate Button */}
+      <button
+        onClick={startQueue}
+        disabled={checkedVolumes.size === 0 || isActive}
+        className="bg-accent text-white rounded px-6 py-2 text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors mb-6"
+      >
+        Generate Selected ({checkedVolumes.size})
+      </button>
+
       {error && (
         <div className="bg-red-900/30 border border-red-500/50 text-red-300 rounded px-4 py-3 mb-6 text-sm">
           {error}
         </div>
       )}
 
-      {/* Job Progress */}
-      {job && job.status !== 'idle' && (
+      {/* Queue Progress */}
+      {queue && queue.status !== 'pending' && queue.queueId && (
         <div className="bg-surface border border-border rounded overflow-hidden mb-6">
+          {/* Header */}
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <div>
               <span className="text-sm font-medium">
-                {job.seriesTitle} &mdash; {job.volumeTitle}
+                {queue.seriesTitle}
               </span>
               <span className={`ml-3 text-xs px-2 py-0.5 rounded ${
-                job.status === 'running' ? 'bg-green-900/40 text-green-400' :
-                job.status === 'paused' ? 'bg-yellow-900/40 text-yellow-400' :
-                job.status === 'completed' ? 'bg-blue-900/40 text-blue-400' :
-                job.status === 'error' ? 'bg-red-900/40 text-red-400' :
+                queue.status === 'running' ? 'bg-green-900/40 text-green-400' :
+                queue.status === 'paused' ? 'bg-yellow-900/40 text-yellow-400' :
+                queue.status === 'completed' ? 'bg-blue-900/40 text-blue-400' :
+                queue.status === 'cancelled' ? 'bg-orange-900/40 text-orange-400' :
+                queue.status === 'error' ? 'bg-red-900/40 text-red-400' :
                 'bg-surface-elevated text-muted'
               }`}>
-                {job.status}
+                {queue.status}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {job.status === 'running' && (
-                <button onClick={pauseJob} className="text-xs text-yellow-400 hover:text-yellow-300 px-3 py-1 border border-yellow-400/30 rounded">
+              {queue.status === 'running' && (
+                <button onClick={pauseQueue} className="text-xs text-yellow-400 hover:text-yellow-300 px-3 py-1 border border-yellow-400/30 rounded">
                   Pause
                 </button>
               )}
-              {job.status === 'paused' && (
-                <button onClick={resumeJob} className="text-xs text-green-400 hover:text-green-300 px-3 py-1 border border-green-400/30 rounded">
+              {queue.status === 'paused' && (
+                <button onClick={resumeQueue} className="text-xs text-green-400 hover:text-green-300 px-3 py-1 border border-green-400/30 rounded">
                   Resume
                 </button>
               )}
               {isActive && (
-                <button onClick={cancelJob} className="text-xs text-red-400 hover:text-red-300 px-3 py-1 border border-red-400/30 rounded">
+                <button onClick={cancelQueue} className="text-xs text-red-400 hover:text-red-300 px-3 py-1 border border-red-400/30 rounded">
                   Cancel
                 </button>
               )}
             </div>
           </div>
 
+          {/* Overall progress */}
           <div className="px-4 py-3">
-            {/* Progress bar */}
             <div className="flex items-center gap-3 mb-2">
               <div className="flex-1 bg-surface-elevated rounded-full h-3 overflow-hidden">
                 <div
                   className="h-full bg-accent transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
+                  style={{ width: `${overallProgress}%` }}
                 />
               </div>
               <span className="text-sm font-mono text-muted whitespace-nowrap">
-                {job.processedPages}/{job.totalPages} ({progressPercent}%)
+                {queue.completedVolumes}/{queue.totalVolumes} volumes ({overallProgress}%)
               </span>
             </div>
 
-            {/* Stats line */}
-            <div className="flex flex-wrap gap-4 text-xs text-muted">
-              {job.status === 'running' && (
-                <span>Page {job.currentPage}</span>
-              )}
-              {job.pagesPerSecond > 0 && (
-                <span>{job.pagesPerSecond.toFixed(1)} pages/s</span>
-              )}
-              {remaining !== null && job.status === 'running' && (
-                <span>ETA: {formatTime(remaining)}</span>
-              )}
-              {job.skippedPages > 0 && (
-                <span>{job.skippedPages} skipped (already processed)</span>
-              )}
-              {job.pages.filter(p => p.error).length > 0 && (
-                <span className="text-red-400">
-                  {job.pages.filter(p => p.error).length} errors
+            {/* Current volume progress */}
+            {jobState && queue.status === 'running' && (
+              <div className="flex items-center gap-3 mb-2">
+                <div className="flex-1 bg-surface-elevated rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 transition-all duration-500"
+                    style={{ width: `${currentItemProgress}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono text-muted whitespace-nowrap">
+                  Page {jobState.currentPage}/{jobState.totalPages}
                 </span>
+              </div>
+            )}
+
+            {/* Stats */}
+            <div className="flex flex-wrap gap-4 text-xs text-muted">
+              {jobState && jobState.pagesPerSecond > 0 && (
+                <span>{jobState.pagesPerSecond.toFixed(1)} pages/s</span>
+              )}
+              {eta !== null && queue.status === 'running' && (
+                <span>ETA: {formatTime(eta)}</span>
+              )}
+              {elapsed > 0 && queue.status === 'running' && (
+                <span>Elapsed: {formatTime(Math.round(elapsed))}</span>
               )}
             </div>
           </div>
 
+          {/* Per-item list */}
+          <div className="border-t border-border divide-y divide-border">
+            {queue.items.map(item => (
+              <div key={item.id} className="px-4 py-2 flex items-center gap-3 text-sm">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  item.status === 'completed' ? 'bg-green-400' :
+                  item.status === 'running' ? 'bg-accent animate-pulse' :
+                  item.status === 'error' ? 'bg-red-400' :
+                  item.status === 'skipped' || item.status === 'cancelled' ? 'bg-orange-400' :
+                  item.status === 'paused' ? 'bg-yellow-400' :
+                  'bg-surface-elevated'
+                }`} />
+                <span className="flex-1">{item.volumeTitle}</span>
+                <span className="text-xs text-muted">
+                  {item.status === 'running' && jobState
+                    ? `${jobState.processedPages}/${jobState.totalPages}p`
+                    : item.status === 'completed'
+                    ? `${item.processedPages}/${item.totalPages}p`
+                    : item.status}
+                </span>
+                {item.error && (
+                  <span className="text-xs text-red-400" title={item.error}>error</span>
+                )}
+              </div>
+            ))}
+          </div>
+
           {/* Completion summary */}
-          {job.status === 'completed' && (
+          {queue.status === 'completed' && (
             <div className="px-4 py-3 border-t border-border">
               <div className="flex items-center justify-between">
                 <div className="text-sm">
                   <span className="text-green-400 font-medium">Complete.</span>
-                  {' '}{job.processedPages} pages processed
-                  {job.skippedPages > 0 && ` (${job.skippedPages} skipped)`}
+                  {' '}{queue.completedVolumes} volumes processed
                   {elapsed > 0 && ` in ${formatTime(Math.round(elapsed))}`}
                 </div>
-                {processedPageNumbers.length > 0 && (
+                {queue.items.some(i => i.status === 'completed') && (
                   <button
-                    onClick={() => openPreview(processedPageNumbers[0])}
+                    onClick={() => {
+                      const first = queue.items.find(i => i.status === 'completed');
+                      if (first) openPreview(first.volumeId, 1);
+                    }}
                     className="text-sm text-accent hover:text-accent-hover"
                   >
                     View Processed Pages
@@ -409,37 +534,11 @@ function PanelJobsPage() {
               </div>
             </div>
           )}
-
-          {job.status === 'error' && job.error && (
-            <div className="px-4 py-3 border-t border-border text-sm text-red-400">
-              Error: {job.error}
-            </div>
-          )}
         </div>
       )}
 
-      {/* View processed pages button (when not active) */}
-      {job && !isActive && job.status !== 'idle' && processedPageNumbers.length > 0 && job.status !== 'completed' && (
-        <button
-          onClick={() => openPreview(processedPageNumbers[0])}
-          className="text-sm text-accent hover:text-accent-hover mb-6"
-        >
-          View Processed Pages ({processedPageNumbers.length})
-        </button>
-      )}
-
-      {/* Also allow viewing during active job */}
-      {isActive && processedPageNumbers.length > 0 && (
-        <button
-          onClick={() => openPreview(processedPageNumbers[processedPageNumbers.length - 1])}
-          className="text-sm text-accent hover:text-accent-hover mb-6 block"
-        >
-          Preview Processed Pages ({processedPageNumbers.length})
-        </button>
-      )}
-
       {/* Preview Modal */}
-      {previewOpen && (
+      {previewOpen && previewVolumeId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setPreviewOpen(false)}>
           <div
             className="bg-surface border border-border rounded-lg max-w-3xl w-full max-h-[90vh] overflow-auto mx-4"
@@ -448,22 +547,26 @@ function PanelJobsPage() {
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => previewNav(-1)}
-                  disabled={previewIdx <= 0}
+                  onClick={() => {
+                    const prev = previewPage - 1;
+                    if (prev >= 1) {
+                      setPreviewPage(prev);
+                      loadPreviewPage(previewVolumeId, prev);
+                    }
+                  }}
+                  disabled={previewPage <= 1}
                   className="px-2 py-1 text-sm border border-border rounded disabled:opacity-30 hover:bg-surface-elevated"
                 >
                   &larr;
                 </button>
-                <span className="text-sm font-mono">
-                  Page {previewPage}
-                  {processedPageNumbers.length > 0 && (
-                    <span className="text-muted"> ({previewIdx + 1}/{processedPageNumbers.length})</span>
-                  )}
-                </span>
+                <span className="text-sm font-mono">Page {previewPage}</span>
                 <button
-                  onClick={() => previewNav(1)}
-                  disabled={previewIdx >= processedPageNumbers.length - 1}
-                  className="px-2 py-1 text-sm border border-border rounded disabled:opacity-30 hover:bg-surface-elevated"
+                  onClick={() => {
+                    const next = previewPage + 1;
+                    setPreviewPage(next);
+                    loadPreviewPage(previewVolumeId, next);
+                  }}
+                  className="px-2 py-1 text-sm border border-border rounded hover:bg-surface-elevated"
                 >
                   &rarr;
                 </button>

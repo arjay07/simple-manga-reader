@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { jobManager } from '@/lib/panel-detect/job-manager';
+import { queueProcessor } from '@/lib/panel-detect/queue-processor';
 
 export async function POST() {
   try {
-    jobManager.cancel();
-    return NextResponse.json(jobManager.getState());
+    const state = queueProcessor.cancel();
+    return NextResponse.json(state);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 409 });
