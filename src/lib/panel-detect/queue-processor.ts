@@ -245,11 +245,21 @@ class QueueProcessor {
   }
 
   pause(): QueueState {
-    if (!this.activeQueueId || !this.processing) {
+    const db = getDb();
+
+    if (!this.activeQueueId) {
+      const running = db
+        .prepare("SELECT id FROM panel_queue WHERE status = 'running' ORDER BY created_at DESC LIMIT 1")
+        .get() as { id: number } | undefined;
+      if (running) {
+        this.activeQueueId = running.id;
+      }
+    }
+
+    if (!this.activeQueueId) {
       throw new Error('No running queue to pause');
     }
 
-    const db = getDb();
     const queue = db
       .prepare('SELECT status FROM panel_queue WHERE id = ?')
       .get(this.activeQueueId) as { status: string } | undefined;
@@ -277,11 +287,23 @@ class QueueProcessor {
   }
 
   resume(): QueueState {
+    const db = getDb();
+
+    // If no in-memory activeQueueId, try to find a paused queue from the DB
+    // (handles server restarts where the singleton lost its state)
+    if (!this.activeQueueId) {
+      const paused = db
+        .prepare("SELECT id FROM panel_queue WHERE status = 'paused' ORDER BY created_at DESC LIMIT 1")
+        .get() as { id: number } | undefined;
+      if (paused) {
+        this.activeQueueId = paused.id;
+      }
+    }
+
     if (!this.activeQueueId) {
       throw new Error('No paused queue to resume');
     }
 
-    const db = getDb();
     const queue = db
       .prepare('SELECT status, confidence_threshold, force FROM panel_queue WHERE id = ?')
       .get(this.activeQueueId) as
@@ -295,7 +317,7 @@ class QueueProcessor {
     // Update DB
     db.prepare("UPDATE panel_queue SET status = 'running' WHERE id = ?").run(this.activeQueueId);
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'running' WHERE queue_id = ? AND status = 'paused'"
+      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'paused'"
     ).run(this.activeQueueId);
 
     // Resume the JobManager if it's paused
@@ -328,11 +350,21 @@ class QueueProcessor {
   }
 
   cancel(): QueueState {
+    const db = getDb();
+
+    if (!this.activeQueueId) {
+      const active = db
+        .prepare("SELECT id FROM panel_queue WHERE status IN ('running', 'paused') ORDER BY created_at DESC LIMIT 1")
+        .get() as { id: number } | undefined;
+      if (active) {
+        this.activeQueueId = active.id;
+      }
+    }
+
     if (!this.activeQueueId) {
       throw new Error('No active queue to cancel');
     }
 
-    const db = getDb();
     const queue = db
       .prepare('SELECT status FROM panel_queue WHERE id = ?')
       .get(this.activeQueueId) as { status: string } | undefined;
@@ -390,31 +422,13 @@ class QueueProcessor {
       "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'running'"
     ).run(queue.id);
 
-    if (queue.status === 'running') {
-      // Auto-resume
-      console.log(`Auto-resuming panel queue ${queue.id}`);
-      db.prepare("UPDATE panel_queue SET status = 'running' WHERE id = ?").run(queue.id);
-
-      this.loopPromise = this.processLoop(
-        queue.id,
-        queue.confidence_threshold,
-        queue.force === 1
-      ).catch((err) => {
-        console.error('Queue processor fatal error on restore:', err);
-        db.prepare(
-          "UPDATE panel_queue SET status = 'error', completed_at = datetime('now') WHERE id = ?"
-        ).run(queue.id);
-        this.activeQueueId = null;
-        this.processing = false;
-      });
-    } else {
-      // Status is 'paused' — keep paused, also reset the paused items back to pending
-      // so they can be picked up when resumed
-      db.prepare(
-        "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'paused'"
-      ).run(queue.id);
-      console.log(`Restored paused panel queue ${queue.id} — waiting for user to resume`);
-    }
+    // Always pause interrupted queues on restart — auto-resuming saturates CPU
+    // and starves web requests. The user can resume manually when ready.
+    db.prepare("UPDATE panel_queue SET status = 'paused' WHERE id = ?").run(queue.id);
+    db.prepare(
+      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status IN ('paused', 'running')"
+    ).run(queue.id);
+    console.log(`Restored panel queue ${queue.id} as paused — resume manually when ready`);
   }
 
   private async processLoop(

@@ -5,6 +5,7 @@ A self-hosted web app for reading manga PDFs. Built with Next.js, SQLite, and cl
 ## Features
 
 - **PDF reader** with right-to-left and left-to-right reading modes, vertical scroll, and page navigation
+- **Smart Panel Zoom** — ML-powered panel detection that auto-zooms and navigates panel-by-panel (see below)
 - **Multiple profiles** with independent reading progress
 - **Auto-scan** manga directory on startup — drop PDFs into folders and they appear as series
 - **Resume reading** from where you left off, per profile
@@ -130,3 +131,54 @@ The dev server with hot reload:
 ```bash
 npm run dev
 ```
+
+## Smart Panel Zoom
+
+Smart Panel Zoom uses a YOLOv11 object detection model to identify individual manga panels on each page, then lets you navigate panel-by-panel with automatic zoom. This is especially useful on phones and tablets where full pages are too small to read comfortably.
+
+### How it works
+
+1. A [YOLOv11 model trained on the Manga109 dataset](https://huggingface.co/deepghs/manga109_yolo) runs server-side via ONNX Runtime to detect panel boundaries on each page
+2. Detected panels are sorted into manga reading order (right-to-left for RTL, left-to-right for LTR)
+3. The reader auto-zooms to each panel in sequence — tap to advance, double-tap to toggle back to full-page view
+4. Panel data is cached in SQLite so detection only runs once per page
+
+The model auto-downloads from Hugging Face on first use (~25 MB) and is stored in the `models/` directory.
+
+### Setting up panel data
+
+Panel detection needs to run before Smart Panel Zoom can be used. There are two admin pages for this:
+
+**Test detection on individual pages** — `/admin/panel-detect`
+- Select a series, volume, and page number
+- Adjust the confidence threshold (default 0.25)
+- Preview detected panels with colored overlays
+- Useful for verifying detection quality before batch processing
+
+**Batch process entire series** — `/admin/panel-jobs`
+- Queue all volumes in a series for panel detection
+- Monitor progress, pause/resume/cancel jobs
+- View per-volume completion status
+- Jobs auto-resume if the server restarts
+
+### Enabling in the reader
+
+Once panel data exists for a volume, open the **Reader Settings** (gear icon) in the reader and toggle **Smart Panel Zoom** on. It is available in RTL and LTR reading modes (not vertical scroll).
+
+**Controls in panel zoom mode:**
+- **Tap / click** — next panel (crosses pages automatically)
+- **Double-tap** — toggle between panel zoom and full-page view
+- **Swipe** — preview the next panel with an animated transition
+- **Scroll wheel** — navigate between panels
+
+## Tech stack
+
+| Component | Library |
+|-----------|---------|
+| Framework | [Next.js](https://nextjs.org/) 16 (App Router) |
+| UI | [React](https://react.dev/) 19, [Tailwind CSS](https://tailwindcss.com/) v4 |
+| Database | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) |
+| PDF rendering (client) | [pdfjs-dist](https://github.com/nickolay/nickolay-pdfjs) (Mozilla PDF.js) |
+| PDF page extraction (server) | [mupdf](https://mupdf.com/) |
+| Panel detection model | [YOLOv11 trained on Manga109](https://huggingface.co/deepghs/manga109_yolo) via [ONNX Runtime](https://onnxruntime.ai/) |
+| Image processing | [sharp](https://sharp.pixelplumbing.com/) |

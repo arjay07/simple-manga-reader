@@ -106,6 +106,13 @@ export function getDb(): Database.Database {
     );
   `);
 
+  // Indexes for common query patterns
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_volumes_series ON volumes(series_id);
+    CREATE INDEX IF NOT EXISTS idx_panel_data_volume ON panel_data(volume_id);
+    CREATE INDEX IF NOT EXISTS idx_panel_queue_items_queue ON panel_queue_items(queue_id, status);
+  `);
+
   // Migration: add reader_settings column if missing (existing DBs)
   const columns = db.pragma('table_info(profiles)') as { name: string }[];
   if (!columns.some((c) => c.name === 'reader_settings')) {

@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     description:
       "A local manga reader for browsing and reading manga collections",
     start_url: `${basePath}/`,
-    scope: `${basePath}/`,
+    scope: `${basePath}`,
     display: "standalone",
     theme_color: "#0a0a0a",
     background_color: "#0a0a0a",

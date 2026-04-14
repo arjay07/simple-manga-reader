@@ -96,8 +96,19 @@ export async function detectPanelsMl(
     };
   });
 
+  // Extract a small grayscale buffer for whiteness checks during inference
+  const SAMPLE_SIZE = 256;
+  const sampleScale = Math.min(SAMPLE_SIZE / origWidth, SAMPLE_SIZE / origHeight);
+  const sampleW = Math.round(origWidth * sampleScale);
+  const sampleH = Math.round(origHeight * sampleScale);
+  const grayscaleBuf = await sharp(imageBuffer)
+    .resize(sampleW, sampleH)
+    .grayscale()
+    .raw()
+    .toBuffer();
+
   // Infer missing panels from uncovered page regions
-  const allPanels = inferMissingPanels(panels);
+  const allPanels = inferMissingPanels(panels, grayscaleBuf, sampleW, sampleH);
 
   // Classify page type
   const pageType = classifyPage(allPanels);
@@ -330,14 +341,54 @@ const MIN_GAP_FRACTION = 0.10;
 const MIN_INFERRED_AREA = 0.05;
 // Page margin to ignore (panels at edges may not reach 0.0/1.0 exactly)
 const PAGE_MARGIN = 0.02;
+// Brightness threshold: pixels above this value (0-255) are considered "white"
+const BLANK_BRIGHTNESS_THRESHOLD = 230;
+// Fraction of white pixels required to consider a region blank
+const BLANK_PIXEL_FRACTION = 0.90;
+
+/**
+ * Check if a normalized region of the page is mostly blank/white.
+ * Uses a downsampled grayscale buffer for efficiency.
+ */
+function isRegionBlank(
+  region: RawPanel,
+  grayscale: Buffer,
+  imgW: number,
+  imgH: number
+): boolean {
+  const x1 = Math.max(0, Math.floor(region.x * imgW));
+  const y1 = Math.max(0, Math.floor(region.y * imgH));
+  const x2 = Math.min(imgW, Math.ceil((region.x + region.width) * imgW));
+  const y2 = Math.min(imgH, Math.ceil((region.y + region.height) * imgH));
+
+  let whiteCount = 0;
+  let totalCount = 0;
+
+  for (let row = y1; row < y2; row++) {
+    for (let col = x1; col < x2; col++) {
+      const brightness = grayscale[row * imgW + col];
+      if (brightness >= BLANK_BRIGHTNESS_THRESHOLD) whiteCount++;
+      totalCount++;
+    }
+  }
+
+  if (totalCount === 0) return true;
+  return whiteCount / totalCount >= BLANK_PIXEL_FRACTION;
+}
 
 /**
  * Infer missing panels from uncovered page regions.
  *
  * Strategy: scan for large rectangular gaps not covered by any detected panel.
  * Check top, bottom, left, right gaps, and gaps between panels.
+ * Each candidate gap is checked for actual content — blank/white regions are skipped.
  */
-function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
+function inferMissingPanels(
+  detected: RawPanel[],
+  grayscale: Buffer,
+  imgW: number,
+  imgH: number
+): RawPanel[] {
   if (detected.length === 0) return detected;
 
   const panels = [...detected];
@@ -360,9 +411,9 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
       y: PAGE_MARGIN,
       width: 1.0 - PAGE_MARGIN * 2,
       height: minY - PAGE_MARGIN,
-      confidence: 0.5, // inferred panels get moderate confidence
+      confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
       inferred.push(gap);
     }
   }
@@ -376,7 +427,7 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
       height: 1.0 - PAGE_MARGIN - maxY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
       inferred.push(gap);
     }
   }
@@ -390,7 +441,7 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
       height: maxY - minY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
       inferred.push(gap);
     }
   }
@@ -404,7 +455,7 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
       height: maxY - minY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
       inferred.push(gap);
     }
   }
@@ -430,7 +481,8 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
         height: gapHeight,
         confidence: 0.5,
       };
-      if (gap.width * gap.height >= MIN_INFERRED_AREA && !overlapsAny(gap, panels)) {
+      if (gap.width * gap.height >= MIN_INFERRED_AREA && !overlapsAny(gap, panels) &&
+          !isRegionBlank(gap, grayscale, imgW, imgH)) {
         inferred.push(gap);
       }
     }
@@ -441,7 +493,6 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
   // at the same Y range, infer a missing panel there.
   for (const panel of panels) {
     const pRight = panel.x + panel.width;
-    const pBottom = panel.y + panel.height;
 
     // Check right side: is there uncovered space to the right of this panel?
     if (pRight < 0.75) {
@@ -453,7 +504,7 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
         confidence: 0.5,
       };
       if (gap.width > 0.15 && gap.width * gap.height >= MIN_INFERRED_AREA &&
-          !overlapsAny(gap, panels)) {
+          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH)) {
         inferred.push(gap);
       }
     }
@@ -468,7 +519,7 @@ function inferMissingPanels(detected: RawPanel[]): RawPanel[] {
         confidence: 0.5,
       };
       if (gap.width > 0.15 && gap.width * gap.height >= MIN_INFERRED_AREA &&
-          !overlapsAny(gap, panels)) {
+          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH)) {
         inferred.push(gap);
       }
     }

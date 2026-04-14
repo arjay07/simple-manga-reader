@@ -205,6 +205,9 @@ class JobManager {
         continue;
       }
 
+      // Yield to the event loop so HTTP requests aren't starved during inference
+      await new Promise<void>(resolve => setImmediate(resolve));
+
       try {
         const start = Date.now();
         const imageBuffer = await extractPageAsImage(pdfPath, page);
