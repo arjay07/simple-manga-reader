@@ -107,8 +107,16 @@ export async function detectPanelsMl(
     .raw()
     .toBuffer();
 
+  // Filter out detected panels that cover mostly blank/white regions.
+  // When checking blankness, exclude pixels covered by other panels so that
+  // overlap with real content doesn't prevent filtering empty margins.
+  const nonBlankPanels = panels.filter(p => {
+    const others = panels.filter(o => o !== p && o.confidence >= p.confidence);
+    return !isRegionBlank(p, grayscaleBuf, sampleW, sampleH, others);
+  });
+
   // Infer missing panels from uncovered page regions
-  const allPanels = inferMissingPanels(panels, grayscaleBuf, sampleW, sampleH);
+  const allPanels = inferMissingPanels(nonBlankPanels, grayscaleBuf, sampleW, sampleH);
 
   // Classify page type
   const pageType = classifyPage(allPanels);
@@ -347,33 +355,70 @@ const BLANK_BRIGHTNESS_THRESHOLD = 230;
 const BLANK_PIXEL_FRACTION = 0.90;
 
 /**
- * Check if a normalized region of the page is mostly blank/white.
+ * Check if a normalized region of the page is mostly blank.
+ * A region is blank if it's mostly white (bright pixels) OR has very
+ * low variance (uniform color, e.g. cream/beige margins).
  * Uses a downsampled grayscale buffer for efficiency.
+ *
+ * When `excludePanels` is provided, pixels that fall within those panels
+ * are skipped — this prevents overlap with real content from masking an
+ * otherwise empty margin.
  */
 function isRegionBlank(
   region: RawPanel,
   grayscale: Buffer,
   imgW: number,
-  imgH: number
+  imgH: number,
+  excludePanels?: RawPanel[]
 ): boolean {
   const x1 = Math.max(0, Math.floor(region.x * imgW));
   const y1 = Math.max(0, Math.floor(region.y * imgH));
   const x2 = Math.min(imgW, Math.ceil((region.x + region.width) * imgW));
   const y2 = Math.min(imgH, Math.ceil((region.y + region.height) * imgH));
 
+  // Pre-compute exclude rects in pixel coords
+  const excludeRects = (excludePanels ?? []).map(p => ({
+    x1: Math.floor(p.x * imgW),
+    y1: Math.floor(p.y * imgH),
+    x2: Math.ceil((p.x + p.width) * imgW),
+    y2: Math.ceil((p.y + p.height) * imgH),
+  }));
+
   let whiteCount = 0;
   let totalCount = 0;
+  let sum = 0;
+  let sumSq = 0;
 
   for (let row = y1; row < y2; row++) {
     for (let col = x1; col < x2; col++) {
+      // Skip pixels inside excluded panels
+      if (excludeRects.some(r => col >= r.x1 && col < r.x2 && row >= r.y1 && row < r.y2)) {
+        continue;
+      }
       const brightness = grayscale[row * imgW + col];
       if (brightness >= BLANK_BRIGHTNESS_THRESHOLD) whiteCount++;
+      sum += brightness;
+      sumSq += brightness * brightness;
       totalCount++;
     }
   }
 
   if (totalCount === 0) return true;
-  return whiteCount / totalCount >= BLANK_PIXEL_FRACTION;
+
+  const mean = sum / totalCount;
+  const variance = sumSq / totalCount - mean * mean;
+  const stddev = Math.sqrt(Math.max(0, variance));
+  const whiteFrac = whiteCount / totalCount;
+
+  // Mostly white pixels
+  if (whiteFrac >= BLANK_PIXEL_FRACTION) return true;
+
+  // Low variance = uniform color (catches cream, beige, gray margins)
+  // stddev < 10 means nearly uniform color; also require brightness > 150
+  // to avoid flagging dark panels as blank
+  if (stddev < 10 && mean > 150) return true;
+
+  return false;
 }
 
 /**
@@ -413,7 +458,7 @@ function inferMissingPanels(
       height: minY - PAGE_MARGIN,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
       inferred.push(gap);
     }
   }
@@ -427,7 +472,7 @@ function inferMissingPanels(
       height: 1.0 - PAGE_MARGIN - maxY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
       inferred.push(gap);
     }
   }
@@ -441,7 +486,7 @@ function inferMissingPanels(
       height: maxY - minY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
       inferred.push(gap);
     }
   }
@@ -455,7 +500,7 @@ function inferMissingPanels(
       height: maxY - minY,
       confidence: 0.5,
     };
-    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+    if (gap.width * gap.height >= MIN_INFERRED_AREA && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
       inferred.push(gap);
     }
   }
@@ -482,7 +527,7 @@ function inferMissingPanels(
         confidence: 0.5,
       };
       if (gap.width * gap.height >= MIN_INFERRED_AREA && !overlapsAny(gap, panels) &&
-          !isRegionBlank(gap, grayscale, imgW, imgH)) {
+          !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
         inferred.push(gap);
       }
     }
@@ -504,7 +549,7 @@ function inferMissingPanels(
         confidence: 0.5,
       };
       if (gap.width > 0.15 && gap.width * gap.height >= MIN_INFERRED_AREA &&
-          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
         inferred.push(gap);
       }
     }
@@ -519,7 +564,7 @@ function inferMissingPanels(
         confidence: 0.5,
       };
       if (gap.width > 0.15 && gap.width * gap.height >= MIN_INFERRED_AREA &&
-          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH)) {
+          !overlapsAny(gap, panels) && !isRegionBlank(gap, grayscale, imgW, imgH, panels)) {
         inferred.push(gap);
       }
     }

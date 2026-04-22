@@ -10,6 +10,7 @@ interface Profile {
   reading_direction: 'rtl' | 'ltr';
   theme: 'dark' | 'light';
   reader_settings: string;
+  is_child: number;
 }
 
 interface ProfileContextType {

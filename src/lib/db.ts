@@ -29,6 +29,7 @@ export function getDb(): Database.Database {
       reading_direction TEXT DEFAULT 'rtl',
       theme TEXT DEFAULT 'dark',
       reader_settings TEXT DEFAULT '{}',
+      is_child INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -123,6 +124,11 @@ export function getDb(): Database.Database {
   const seriesColumns = db.pragma('table_info(series)') as { name: string }[];
   if (!seriesColumns.some((c) => c.name === 'mangadex_id')) {
     db.exec(`ALTER TABLE series ADD COLUMN mangadex_id TEXT`);
+  }
+
+  // Migration: add is_child column if missing (existing DBs)
+  if (!columns.some((c) => c.name === 'is_child')) {
+    db.exec(`ALTER TABLE profiles ADD COLUMN is_child INTEGER DEFAULT 0`);
   }
 
   return db;

@@ -106,64 +106,63 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
     row.sort((a, b) => (b.x + b.width) - (a.x + a.width));
   }
 
-  // Defer tall LEFT-SIDE panels that span into subsequent rows.
-  // In RTL manga, when a tall panel on the LEFT sits beside stacked shorter
-  // panels on the RIGHT, the right panels are read first (top-to-bottom),
-  // then the tall left panel. But a tall panel on the RIGHT should be read
-  // FIRST (it's the rightmost, so RTL reads it before the left column).
-  for (let i = 0; i < rows.length; i++) {
-    const deferred: PanelWithId[] = [];
-    const kept: PanelWithId[] = [];
+  // Defer panels that span into later rows where right-side panels exist
+  // in a genuine side-by-side layout. In RTL manga, when a tall panel on
+  // the LEFT sits beside stacked shorter panels on the RIGHT, the right
+  // panels are read first (top-to-bottom), then the tall left panel.
+  //
+  // We iterate until stable because deferring one panel (e.g. the leftmost)
+  // can leave another panel (e.g. center-left) that also needs deferring.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].length === 0) continue;
 
-    for (const panel of rows[i]) {
-      const panelBottom = panel.y + panel.height;
-      const panelCenterX = panel.x + panel.width / 2;
+      // Walk RTL-sorted row from last (leftmost) to first (rightmost)
+      for (let k = rows[i].length - 1; k >= 0; k--) {
+        const panel = rows[i][k];
+        const panelBottom = panel.y + panel.height;
+        const panelCenterX = panel.x + panel.width / 2;
 
-      // Check if this panel overlaps with any panel in subsequent rows
-      let spansIntoLaterRow = false;
-      for (let j = i + 1; j < rows.length; j++) {
-        for (const laterPanel of rows[j]) {
-          if (panelBottom > laterPanel.y + laterPanel.height * 0.3) {
-            spansIntoLaterRow = true;
-            break;
-          }
-        }
-        if (spansIntoLaterRow) break;
-      }
-
-      // Only defer if: spans into later rows, has row-mates, AND is the
-      // LEFTMOST panel in the row (in RTL, leftmost = read last).
-      // Don't defer middle panels — only the leftmost one.
-      const isLeftmost = rows[i].length > 1 &&
-        rows[i].every(other => other.id === panel.id || (other.x + other.width / 2) > panelCenterX);
-
-      if (spansIntoLaterRow && isLeftmost) {
-        deferred.push(panel);
-      } else {
-        kept.push(panel);
-      }
-    }
-
-    if (deferred.length > 0 && kept.length > 0) {
-      rows[i] = kept;
-
-      for (const dp of deferred) {
-        const dpBottom = dp.y + dp.height;
-        let insertAfterRow = i;
+        // Find the last later row this panel spans into that has panels
+        // to its right in a genuine side-by-side (non-overlapping) layout.
+        let targetRow = -1;
         for (let j = i + 1; j < rows.length; j++) {
           for (const laterPanel of rows[j]) {
-            if (dpBottom > laterPanel.y + laterPanel.height * 0.3) {
-              insertAfterRow = j;
+            if (panelBottom > laterPanel.y + laterPanel.height * 0.3) {
+              const laterCenterX = laterPanel.x + laterPanel.width / 2;
+              // Horizontal overlap: if high, panels are stacked vertically,
+              // not side-by-side — skip deferral.
+              const horizOverlap =
+                Math.min(panel.x + panel.width, laterPanel.x + laterPanel.width) -
+                Math.max(panel.x, laterPanel.x);
+              const overlapFraction =
+                Math.max(0, horizOverlap) / Math.min(panel.width, laterPanel.width);
+
+              if (overlapFraction < 0.5 && laterCenterX > panelCenterX) {
+                targetRow = j;
+              }
             }
           }
         }
-        rows.splice(insertAfterRow + 1, 0, [dp]);
+
+        if (targetRow > i) {
+          rows[i].splice(k, 1);
+          rows.splice(targetRow + 1, 0, [panel]);
+          changed = true;
+          break;
+        }
       }
+      if (changed) break;
     }
   }
 
+  // Remove rows emptied by deferral
+  const filtered = rows.filter(r => r.length > 0);
+
   // Flatten rows into final order
-  return rows.flat();
+  return filtered.flat();
 }
 
 /**

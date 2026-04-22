@@ -37,7 +37,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, avatar, reading_direction, theme, reader_settings } = body;
+    const { name, avatar, reading_direction, theme, reader_settings, is_child } = body;
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -50,6 +50,7 @@ export async function PUT(
       fields.push('reader_settings = ?');
       values.push(typeof reader_settings === 'string' ? reader_settings : JSON.stringify(reader_settings));
     }
+    if (is_child !== undefined) { fields.push('is_child = ?'); values.push(is_child ? 1 : 0); }
 
     if (fields.length > 0) {
       values.push(id);
@@ -59,6 +60,10 @@ export async function PUT(
     const profile = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
     return NextResponse.json(profile);
   } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return NextResponse.json({ error: 'A profile with that name already exists' }, { status: 409 });
+    }
     console.error('Failed to update profile:', error);
     return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
   }
