@@ -164,6 +164,28 @@ export default function MangaReader({
   const fullDataLoadedRef = useRef(false);
   const panelZoomPausedRef = useRef(false); // true when user double-tapped out to full page view
 
+  const [focusMode, setFocusMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('focusMode') === 'true';
+  });
+  const focusModeRef = useRef(focusMode);
+  const smartPanelZoomRef = useRef(false);
+  const hasPanelDataRef = useRef(false);
+  const panelDataMapRef = useRef<Map<number, PanelDataPage>>(new Map());
+  const currentPageRef = useRef(1);
+  const letterboxGroupRef = useRef<HTMLDivElement>(null);
+  const letterboxTopRef = useRef<HTMLDivElement>(null);
+  const letterboxBottomRef = useRef<HTMLDivElement>(null);
+  const letterboxLeftRef = useRef<HTMLDivElement>(null);
+  const letterboxRightRef = useRef<HTMLDivElement>(null);
+  const letterboxFadingRef = useRef(false); // true during cross-page strip slide
+  // Last-written bar geometry + transition; used to skip redundant DOM writes
+  // during pinch/drag when the computed rect hasn't changed frame-to-frame.
+  const lastLetterboxWriteRef = useRef<{
+    L: number; R: number; T: number; B: number;
+    vW: number; vH: number; transition: string;
+  } | null>(null);
+
   // Panel drag state for progressive swipe between panels/stops
   interface PanelTransform { ox: number; oy: number; scale: number; panX: number; panY: number }
   const panelDragRef = useRef<{
@@ -173,8 +195,143 @@ export default function MangaReader({
     isDragging: boolean;
   } | null>(null);
 
+  useEffect(() => { focusModeRef.current = focusMode; }, [focusMode]);
+  useEffect(() => { smartPanelZoomRef.current = smartPanelZoom; }, [smartPanelZoom]);
+  useEffect(() => { hasPanelDataRef.current = hasPanelData; }, [hasPanelData]);
+  useEffect(() => { panelDataMapRef.current = panelDataMap; }, [panelDataMap]);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+
+  const writeLetterbox = useCallback((opts: {
+    panel?: Panel | null;
+    withTransition?: boolean;
+    transformOverride?: PanelTransform;
+    fadeOpacity?: 0 | 1;
+  } = {}) => {
+    const group = letterboxGroupRef.current;
+    if (!group) return;
+
+    let panel = opts.panel;
+    if (panel === undefined) {
+      const pageData = panelDataMapRef.current.get(currentPageRef.current);
+      const idx = currentPanelIndexRef.current;
+      panel = pageData && pageData.pageType === 'panels' && idx >= 0 && idx < pageData.panels.length
+        ? pageData.panels[idx]
+        : null;
+    }
+
+    const gating =
+      focusModeRef.current &&
+      smartPanelZoomRef.current &&
+      hasPanelDataRef.current &&
+      isZoomedRef.current &&
+      !panelZoomPausedRef.current &&
+      !letterboxFadingRef.current &&
+      panel != null;
+
+    const desiredOpacity = opts.fadeOpacity !== undefined ? opts.fadeOpacity : (gating ? 1 : 0);
+    group.style.transition = 'opacity 150ms ease-out';
+    group.style.opacity = String(desiredOpacity);
+
+    if (desiredOpacity === 0 || !panel) return;
+
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const cw = parseFloat(canvas.style.width) || 0;
+    const ch = parseFloat(canvas.style.height) || 0;
+    if (cw === 0 || ch === 0) return;
+
+    const vW = window.innerWidth;
+    const vH = container.clientHeight;
+
+    const marginX = panel.width * 0.08 * (1 - panel.width);
+    const marginY = panel.height * 0.08 * (1 - panel.height);
+    const px = Math.max(0, panel.x - marginX);
+    const py = Math.max(0, panel.y - marginY);
+    const pw = Math.min(1 - px, panel.width + marginX * 2);
+    const ph = Math.min(1 - py, panel.height + marginY * 2);
+
+    let rectLeft: number, rectTop: number, rectRight: number, rectBottom: number;
+
+    if (opts.transformOverride) {
+      // Live gesture (pinch/drag) — project the padded bbox through the override
+      // so the bars track the wrapper in real time.
+      const { scale: s, ox, oy, panX, panY } = opts.transformOverride;
+      const natLeft = (vW - cw) / 2;
+      const natTop = (vH - ch) / 2;
+      const tx = ox * (1 - s) + panX;
+      const ty = oy * (1 - s) + panY;
+      rectLeft = natLeft + tx + px * cw * s;
+      rectTop = natTop + ty + py * ch * s;
+      rectRight = rectLeft + pw * cw * s;
+      rectBottom = rectTop + ph * ch * s;
+    } else {
+      // Canonical focus frame: the panel's padded bbox at fit-to-viewport zoom,
+      // centered in the viewport. This frames the panel at its natural aspect
+      // ratio regardless of the reader's actual zoom level, so:
+      //   • single-stop panels get a frame matching their visible shape,
+      //   • multi-stop panels get a shared frame (stops pan content through it),
+      //   • wide-screen panels aren't left with a squarish clipped window.
+      const panelCssW = pw * cw;
+      const panelCssH = ph * ch;
+      const panelRatio = panelCssH > 0 ? panelCssW / panelCssH : 1;
+      const viewportRatio = vH > 0 ? vW / vH : 1;
+      const pad = 0.95;
+      let rectW: number, rectH: number;
+      if (panelRatio >= viewportRatio) {
+        rectW = vW * pad;
+        rectH = rectW / panelRatio;
+      } else {
+        rectH = vH * pad;
+        rectW = rectH * panelRatio;
+      }
+      rectLeft = (vW - rectW) / 2;
+      rectTop = (vH - rectH) / 2;
+      rectRight = rectLeft + rectW;
+      rectBottom = rectTop + rectH;
+    }
+
+    const L = Math.max(0, Math.min(vW, rectLeft));
+    const R = Math.max(0, Math.min(vW, rectRight));
+    const T = Math.max(0, Math.min(vH, rectTop));
+    const B = Math.max(0, Math.min(vH, rectBottom));
+
+    const barTransition = opts.withTransition
+      ? 'top 200ms ease-out, left 200ms ease-out, width 200ms ease-out, height 200ms ease-out'
+      : 'none';
+
+    // Skip DOM writes if geometry is identical to the last frame. Pinch-move
+    // and resize frequently call this with an unchanged rect — the browser
+    // still re-parses on every style assignment, so the guard matters.
+    const last = lastLetterboxWriteRef.current;
+    if (
+      last &&
+      last.L === L && last.R === R && last.T === T && last.B === B &&
+      last.vW === vW && last.vH === vH && last.transition === barTransition
+    ) {
+      return;
+    }
+    lastLetterboxWriteRef.current = { L, R, T, B, vW, vH, transition: barTransition };
+
+    const bars: Array<[HTMLDivElement | null, number, number, number, number]> = [
+      [letterboxTopRef.current,    0, 0, vW,                          T],
+      [letterboxBottomRef.current, 0, B, vW,                          Math.max(0, vH - B)],
+      [letterboxLeftRef.current,   0, T, L,                           Math.max(0, B - T)],
+      [letterboxRightRef.current,  R, T, Math.max(0, vW - R),         Math.max(0, B - T)],
+    ];
+    for (const [el, left, top, width, height] of bars) {
+      if (!el) continue;
+      el.style.transition = barTransition;
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+      el.style.width = `${width}px`;
+      el.style.height = `${height}px`;
+    }
+  }, []);
+
   const handleSmartPanelZoomChange = useCallback((value: boolean) => {
     setSmartPanelZoom(value);
+    smartPanelZoomRef.current = value;
     localStorage.setItem('smartPanelZoom', String(value));
     if (!value) {
       setCurrentPanelIndex(-1);
@@ -184,7 +341,15 @@ export default function MangaReader({
     } else {
       panelZoomPausedRef.current = false;
     }
-  }, []);
+    writeLetterbox({ withTransition: false });
+  }, [writeLetterbox]);
+
+  const handleFocusModeChange = useCallback((value: boolean) => {
+    setFocusMode(value);
+    focusModeRef.current = value;
+    localStorage.setItem('focusMode', String(value));
+    writeLetterbox({ withTransition: false });
+  }, [writeLetterbox]);
 
   // Two-phase panel data fetch when smart panel zoom is enabled
   useEffect(() => {
@@ -318,6 +483,12 @@ export default function MangaReader({
     window.addEventListener('resize', checkWidth);
     return () => window.removeEventListener('resize', checkWidth);
   }, []);
+
+  useEffect(() => {
+    const onResize = () => writeLetterbox({ withTransition: false });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [writeLetterbox]);
 
   // Load PDF
   useEffect(() => {
@@ -710,7 +881,8 @@ export default function MangaReader({
       const ty = oy * (1 - s) + panY;
       wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
     }
-  }, []);
+    writeLetterbox({ withTransition });
+  }, [writeLetterbox]);
 
   // Apply an interpolated transform directly to the wrapper (no ref updates).
   const applyInterpolatedTransform = useCallback((t: PanelTransform) => {
@@ -721,7 +893,8 @@ export default function MangaReader({
     const tx = t.ox * (1 - t.scale) + t.panX;
     const ty = t.oy * (1 - t.scale) + t.panY;
     wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${t.scale})`;
-  }, []);
+    writeLetterbox({ withTransition: false, transformOverride: t });
+  }, [writeLetterbox]);
 
   // Returns true if this touch is a double-tap (within 280ms and 40px of last tap).
   const detectDoubleTap = useCallback((x: number, y: number): boolean => {
@@ -1247,6 +1420,11 @@ export default function MangaReader({
       return false;
     }
 
+    // Fade letterbox out for the duration of the strip slide — rect interpolation
+    // across two different page geometries would look broken.
+    letterboxFadingRef.current = true;
+    writeLetterbox({ fadeOpacity: 0 });
+
     (async () => {
       const vW = window.innerWidth;
       const vH = container.clientHeight;
@@ -1417,9 +1595,16 @@ export default function MangaReader({
         panelStopRef.current = resolvedStopIndex;
         if (readingDir === 'forward') goNextPage();
         else goPrevPage();
+        // Sync currentPageRef synchronously so writeLetterbox (called in the
+        // rAF below, before React's commit re-runs our useEffect sync) looks
+        // up the new page's panel data, not the old page's.
+        currentPageRef.current = targetPageNum;
 
-        // Re-apply zoom transform after React re-render settles
+        // Re-apply zoom transform after React re-render settles, then fade
+        // letterbox back in at the new panel's rect (no rect transition —
+        // we want the bars to appear already framing the new panel).
         requestAnimationFrame(() => {
+          letterboxFadingRef.current = false;
           applyZoomTransform(false);
         });
       };
@@ -1427,7 +1612,7 @@ export default function MangaReader({
     })();
 
     return true;
-  }, [effectiveDirection, pdfDocument, applyZoomTransform, goNextPage, goPrevPage]);
+  }, [effectiveDirection, pdfDocument, applyZoomTransform, goNextPage, goPrevPage, writeLetterbox]);
 
   // Navigate to next panel (returns true if handled)
   const advancePanel = useCallback((): boolean => {
@@ -2241,6 +2426,21 @@ export default function MangaReader({
         </div>
       )}
 
+      {/* Focus Mode letterbox — four black bars framing the current panel.
+          Bars are positioned/sized via direct DOM writes inside writeLetterbox. */}
+      {!isVertical && !spreadMode && (
+        <div
+          ref={letterboxGroupRef}
+          className="absolute inset-0 pointer-events-none z-[15]"
+          style={{ opacity: 0, transition: 'opacity 150ms ease-out' }}
+        >
+          <div ref={letterboxTopRef} className="absolute bg-black" />
+          <div ref={letterboxBottomRef} className="absolute bg-black" />
+          <div ref={letterboxLeftRef} className="absolute bg-black" />
+          <div ref={letterboxRightRef} className="absolute bg-black" />
+        </div>
+      )}
+
       {/* Page rendering spinner */}
       {pageRendering && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
@@ -2337,6 +2537,8 @@ export default function MangaReader({
         smartPanelZoom={smartPanelZoom}
         onSmartPanelZoomChange={handleSmartPanelZoomChange}
         hasPanelData={hasPanelData}
+        focusMode={focusMode}
+        onFocusModeChange={handleFocusModeChange}
       />
     </div>
   );

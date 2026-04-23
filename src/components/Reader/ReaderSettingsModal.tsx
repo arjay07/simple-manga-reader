@@ -12,6 +12,8 @@ interface ReaderSettingsModalProps {
   smartPanelZoom: boolean;
   onSmartPanelZoomChange: (value: boolean) => void;
   hasPanelData: boolean;
+  focusMode: boolean;
+  onFocusModeChange: (value: boolean) => void;
 }
 
 export default function ReaderSettingsModal({
@@ -23,6 +25,8 @@ export default function ReaderSettingsModal({
   smartPanelZoom,
   onSmartPanelZoomChange,
   hasPanelData,
+  focusMode,
+  onFocusModeChange,
 }: ReaderSettingsModalProps) {
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -169,6 +173,30 @@ export default function ReaderSettingsModal({
                 />
               </button>
             </div>
+
+            {/* Focus Mode (nested under Smart Panel Zoom) */}
+            {smartPanelZoom && (
+              <div className="mt-3 pl-3 border-l border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-white/60 uppercase tracking-wide">Focus Mode</label>
+                  <button
+                    onClick={() => onFocusModeChange(!focusMode)}
+                    className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                      focusMode ? 'bg-blue-500' : 'bg-white/20'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        focusMode ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-xs text-white/40 mt-1">
+                  Adds black bars around the current panel so nothing else distracts.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
