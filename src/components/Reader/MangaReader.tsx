@@ -190,8 +190,11 @@ export default function MangaReader({
   interface PanelTransform { ox: number; oy: number; scale: number; panX: number; panY: number }
   const panelDragRef = useRef<{
     start: PanelTransform;
+    startPanel: Panel;
     forwardTarget: PanelTransform | null;  // null = cross-page (no preview)
+    forwardTargetPanel: Panel | null;
     backwardTarget: PanelTransform | null;
+    backwardTargetPanel: Panel | null;
     isDragging: boolean;
   } | null>(null);
 
@@ -206,6 +209,15 @@ export default function MangaReader({
     withTransition?: boolean;
     transformOverride?: PanelTransform;
     fadeOpacity?: 0 | 1;
+    // Drag preview: lerp the rect between the current panel projected through
+    // `fromTransform` and the `toPanel` projected through `toTransform`, by
+    // `progress`. Overrides `transformOverride` for projection purposes.
+    dragInterp?: {
+      fromTransform: PanelTransform;
+      toPanel: Panel;
+      toTransform: PanelTransform;
+      progress: number;
+    };
   } = {}) => {
     const group = letterboxGroupRef.current;
     if (!group) return;
@@ -243,58 +255,63 @@ export default function MangaReader({
 
     const vW = window.innerWidth;
     const vH = container.clientHeight;
+    const natLeft = (vW - cw) / 2;
+    const natTop = (vH - ch) / 2;
 
-    const marginX = panel.width * 0.08 * (1 - panel.width);
-    const marginY = panel.height * 0.08 * (1 - panel.height);
-    const px = Math.max(0, panel.x - marginX);
-    const py = Math.max(0, panel.y - marginY);
-    const pw = Math.min(1 - px, panel.width + marginX * 2);
-    const ph = Math.min(1 - py, panel.height + marginY * 2);
+    // Project a panel's padded bbox through a transform into viewport coords.
+    const project = (p: Panel, t: PanelTransform) => {
+      const mx = p.width * 0.08 * (1 - p.width);
+      const my = p.height * 0.08 * (1 - p.height);
+      const px = Math.max(0, p.x - mx);
+      const py = Math.max(0, p.y - my);
+      const pw = Math.min(1 - px, p.width + mx * 2);
+      const ph = Math.min(1 - py, p.height + my * 2);
+      const txVal = t.ox * (1 - t.scale) + t.panX;
+      const tyVal = t.oy * (1 - t.scale) + t.panY;
+      const left = natLeft + txVal + px * cw * t.scale;
+      const top = natTop + tyVal + py * ch * t.scale;
+      return {
+        left,
+        top,
+        right: left + pw * cw * t.scale,
+        bottom: top + ph * ch * t.scale,
+      };
+    };
 
+    // Project the padded bbox through the wrapper's transform. Using the
+    // transform directly means bar rect lerp is a linear function of the
+    // transform lerp — so CSS transitions on bar geometry stay in lock-step
+    // with the wrapper's transform transition during panel-change animations.
     let rectLeft: number, rectTop: number, rectRight: number, rectBottom: number;
-
-    if (opts.transformOverride) {
-      // Live gesture (pinch/drag) — project the padded bbox through the override
-      // so the bars track the wrapper in real time.
-      const { scale: s, ox, oy, panX, panY } = opts.transformOverride;
-      const natLeft = (vW - cw) / 2;
-      const natTop = (vH - ch) / 2;
-      const tx = ox * (1 - s) + panX;
-      const ty = oy * (1 - s) + panY;
-      rectLeft = natLeft + tx + px * cw * s;
-      rectTop = natTop + ty + py * ch * s;
-      rectRight = rectLeft + pw * cw * s;
-      rectBottom = rectTop + ph * ch * s;
+    if (opts.dragInterp) {
+      // Drag preview: lerp between (current panel at start transform) and
+      // (target panel at its target transform) by drag progress. Without this
+      // lerp, projecting the current panel through the interpolated transform
+      // drags the frame off-viewport and leaves the incoming panel uncovered.
+      const a = project(panel, opts.dragInterp.fromTransform);
+      const b = project(opts.dragInterp.toPanel, opts.dragInterp.toTransform);
+      const p = opts.dragInterp.progress;
+      rectLeft = a.left + (b.left - a.left) * p;
+      rectTop = a.top + (b.top - a.top) * p;
+      rectRight = a.right + (b.right - a.right) * p;
+      rectBottom = a.bottom + (b.bottom - a.bottom) * p;
     } else {
-      // Canonical focus frame: the panel's padded bbox at fit-to-viewport zoom,
-      // centered in the viewport. This frames the panel at its natural aspect
-      // ratio regardless of the reader's actual zoom level, so:
-      //   • single-stop panels get a frame matching their visible shape,
-      //   • multi-stop panels get a shared frame (stops pan content through it),
-      //   • wide-screen panels aren't left with a squarish clipped window.
-      const panelCssW = pw * cw;
-      const panelCssH = ph * ch;
-      const panelRatio = panelCssH > 0 ? panelCssW / panelCssH : 1;
-      const viewportRatio = vH > 0 ? vW / vH : 1;
-      const pad = 0.95;
-      let rectW: number, rectH: number;
-      if (panelRatio >= viewportRatio) {
-        rectW = vW * pad;
-        rectH = rectW / panelRatio;
-      } else {
-        rectH = vH * pad;
-        rectW = rectH * panelRatio;
-      }
-      rectLeft = (vW - rectW) / 2;
-      rectTop = (vH - rectH) / 2;
-      rectRight = rectLeft + rectW;
-      rectBottom = rectTop + rectH;
+      const t: PanelTransform = opts.transformOverride ?? {
+        ox: zoomOriginRef.current.x,
+        oy: zoomOriginRef.current.y,
+        scale: zoomScaleRef.current,
+        panX: panRef.current.x,
+        panY: panRef.current.y,
+      };
+      ({ left: rectLeft, top: rectTop, right: rectRight, bottom: rectBottom } = project(panel, t));
     }
 
-    const L = Math.max(0, Math.min(vW, rectLeft));
-    const R = Math.max(0, Math.min(vW, rectRight));
-    const T = Math.max(0, Math.min(vH, rectTop));
-    const B = Math.max(0, Math.min(vH, rectBottom));
+    // Round to integer pixels after clamping — fractional edges cause the
+    // browser to antialias the bar boundary, producing a see-through hairline.
+    const L = Math.round(Math.max(0, Math.min(vW, rectLeft)));
+    const R = Math.round(Math.max(0, Math.min(vW, rectRight)));
+    const T = Math.round(Math.max(0, Math.min(vH, rectTop)));
+    const B = Math.round(Math.max(0, Math.min(vH, rectBottom)));
 
     const barTransition = opts.withTransition
       ? 'top 200ms ease-out, left 200ms ease-out, width 200ms ease-out, height 200ms ease-out'
@@ -885,7 +902,15 @@ export default function MangaReader({
   }, [writeLetterbox]);
 
   // Apply an interpolated transform directly to the wrapper (no ref updates).
-  const applyInterpolatedTransform = useCallback((t: PanelTransform) => {
+  const applyInterpolatedTransform = useCallback((
+    t: PanelTransform,
+    dragInterp?: {
+      fromTransform: PanelTransform;
+      toPanel: Panel;
+      toTransform: PanelTransform;
+      progress: number;
+    },
+  ) => {
     const wrapper = zoomWrapperRef.current;
     if (!wrapper) return;
     wrapper.style.transition = 'none';
@@ -893,7 +918,7 @@ export default function MangaReader({
     const tx = t.ox * (1 - t.scale) + t.panX;
     const ty = t.oy * (1 - t.scale) + t.panY;
     wrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${t.scale})`;
-    writeLetterbox({ withTransition: false, transformOverride: t });
+    writeLetterbox({ withTransition: false, transformOverride: t, dragInterp });
   }, [writeLetterbox]);
 
   // Returns true if this touch is a double-tap (within 280ms and 40px of last tap).
@@ -1897,25 +1922,38 @@ export default function MangaReader({
 
         const { stopCount } = computeStopCount(curPanel);
 
-        // Forward target: next stop or next panel
+        // Forward target: next stop (same panel) or next panel (stop 0)
         let forwardTarget: PanelTransform | null = null;
+        let forwardTargetPanel: Panel | null = null;
         if (curStop < stopCount - 1) {
           forwardTarget = computePanelTransform(curPanel, curStop + 1);
+          forwardTargetPanel = curPanel;
         } else if (curIdx + 1 < pageData.panels.length) {
-          forwardTarget = computePanelTransform(pageData.panels[curIdx + 1], 0);
+          forwardTargetPanel = pageData.panels[curIdx + 1];
+          forwardTarget = computePanelTransform(forwardTargetPanel, 0);
         }
 
-        // Backward target: prev stop or prev panel (last stop)
+        // Backward target: prev stop (same panel) or prev panel (last stop)
         let backwardTarget: PanelTransform | null = null;
+        let backwardTargetPanel: Panel | null = null;
         if (curStop > 0) {
           backwardTarget = computePanelTransform(curPanel, curStop - 1);
+          backwardTargetPanel = curPanel;
         } else if (curIdx - 1 >= 0) {
-          const prevPanel = pageData.panels[curIdx - 1];
-          const { stopCount: prevStops } = computeStopCount(prevPanel);
-          backwardTarget = computePanelTransform(prevPanel, prevStops - 1);
+          backwardTargetPanel = pageData.panels[curIdx - 1];
+          const { stopCount: prevStops } = computeStopCount(backwardTargetPanel);
+          backwardTarget = computePanelTransform(backwardTargetPanel, prevStops - 1);
         }
 
-        panelDragRef.current = { start, forwardTarget, backwardTarget, isDragging: false };
+        panelDragRef.current = {
+          start,
+          startPanel: curPanel,
+          forwardTarget,
+          forwardTargetPanel,
+          backwardTarget,
+          backwardTargetPanel,
+          isDragging: false,
+        };
       }
     }
   }, [isVertical, spreadMode, smartPanelZoom, hasPanelData, panelDataMap, currentPage, computePanelTransform, computeStopCount, getPinchGeometry]);
@@ -1954,6 +1992,7 @@ export default function MangaReader({
         const adjustedDx = dx - Math.sign(dx) * deadZone;
         const isForward = effectiveDirection === 'rtl' ? adjustedDx > 0 : adjustedDx < 0;
         const target = isForward ? drag.forwardTarget : drag.backwardTarget;
+        const targetPanel = isForward ? drag.forwardTargetPanel : drag.backwardTargetPanel;
         const threshold = window.innerWidth * 0.4;
         const progress = Math.min(Math.abs(adjustedDx) / threshold, 1);
 
@@ -1968,13 +2007,18 @@ export default function MangaReader({
         // Lerp all transform params toward the target
         const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
         const s = drag.start;
-        applyInterpolatedTransform({
-          ox: lerp(s.ox, target.ox, progress),
-          oy: lerp(s.oy, target.oy, progress),
-          scale: lerp(s.scale, target.scale, progress),
-          panX: lerp(s.panX, target.panX, progress),
-          panY: lerp(s.panY, target.panY, progress),
-        });
+        applyInterpolatedTransform(
+          {
+            ox: lerp(s.ox, target.ox, progress),
+            oy: lerp(s.oy, target.oy, progress),
+            scale: lerp(s.scale, target.scale, progress),
+            panX: lerp(s.panX, target.panX, progress),
+            panY: lerp(s.panY, target.panY, progress),
+          },
+          targetPanel
+            ? { fromTransform: s, toPanel: targetPanel, toTransform: target, progress }
+            : undefined,
+        );
         return;
       }
       if (smartPanelZoom && hasPanelData) {

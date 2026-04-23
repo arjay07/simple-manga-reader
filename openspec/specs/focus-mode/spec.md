@@ -44,12 +44,11 @@ When Focus Mode and Smart Panel Zoom are both enabled and the reader is zoomed t
 - **THEN** four black overlay regions SHALL cover the viewport area outside the current panel's padded rect
 - **AND** the covered regions SHALL be opaque black
 
-#### Scenario: Letterbox framing matches the panel's natural aspect ratio
+#### Scenario: Letterbox framing tracks the rendered panel
 
-- **WHEN** the letterbox is visible and no live gesture (pinch/drag) is in progress
-- **THEN** the revealed rect SHALL be sized by the panel's padded bounding box (same 8% adaptive margin Smart Panel Zoom uses) at its fit-to-viewport aspect ratio, centered in the viewport
-- **AND** the entire detected panel (plus adaptive margin) SHALL be fully revealed by the rect regardless of current multi-stop zoom
-- **AND** on wide screens the rect SHALL NOT collapse into a square — a wide panel produces a wide strip, a tall panel produces a tall strip
+- **WHEN** the letterbox is visible
+- **THEN** the revealed rect SHALL be the panel's padded bounding box (same 8% adaptive margin Smart Panel Zoom uses) projected through the wrapper's current transform, clamped to the viewport and pixel-rounded
+- **AND** the rect SHALL encase the panel as it is actually rendered — on narrow/portrait viewports where multi-stop zoom enlarges the panel beyond its fit size, the rect grows to match; on wide viewports the rect fills viewport width with top/bottom bars matching the panel's visible vertical extent
 
 #### Scenario: Letterbox hidden when not zoomed
 
@@ -83,15 +82,26 @@ The letterbox SHALL animate its framing rect smoothly during panel-to-panel tran
 #### Scenario: Advance between stops of the same multi-stop panel
 
 - **WHEN** the user taps to advance from one stop to another stop of the same panel
-- **THEN** the letterbox frame SHALL remain stationary
+- **THEN** the letterbox frame SHALL remain visually stationary (every stop's clamped projected rect is identical because the panel's width at multi-stop zoom exceeds the viewport and its vertical extent is pan-invariant)
 - **AND** the panel content underneath SHALL pan to the new stop
-- **AND** all stops of a given panel SHALL share the same focus window derived from the panel's fit-to-viewport aspect ratio (independent of multi-stop zoom level)
+
+#### Scenario: Letterbox stays synced with the wrapper during panel-change animations
+
+- **WHEN** the wrapper is animating its transform from one panel's position to the next over approximately 200 ms
+- **THEN** the letterbox bars SHALL transition their geometry over the same duration and curve
+- **AND** because the bar rect is a linear projection of the wrapper transform, the bars SHALL remain visually aligned with the moving panel throughout the animation (no dark coverage of content that has already entered the viewport)
 
 #### Scenario: Advance across a page boundary
 
 - **WHEN** advancing to a panel on a different page triggers a cross-page strip-slide transition
 - **THEN** the letterbox SHALL fade out before or during the slide
 - **AND** the letterbox SHALL fade back in framing the new panel once the new page is settled
+
+#### Scenario: Letterbox tracks the panel-drag preview
+
+- **WHEN** the user progressively drags toward an adjacent panel (the interpolated transform preview)
+- **THEN** the letterbox rect SHALL interpolate between the current panel's projection (at the drag-start transform) and the target panel's projection (at its canonical transform) by the drag progress
+- **AND** the bars SHALL continuously encase whichever panel is visually predominant at each frame, with neither the outgoing nor incoming panel covered by stale bars
 
 #### Scenario: Letterbox tracks pinch gestures
 
