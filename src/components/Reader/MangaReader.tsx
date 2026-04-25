@@ -147,6 +147,7 @@ export default function MangaReader({
   } | null>(null);
   const gestureHadPinchRef = useRef(false);
   const pinchRerenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panelRerenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Smart panel zoom state
   const [smartPanelZoom, setSmartPanelZoom] = useState(() => {
@@ -1266,154 +1267,70 @@ export default function MangaReader({
     return { ox, oy, scale: finalZoom, panX, panY };
   }, [effectiveDirection]);
 
-  // Re-render canvas at higher resolution for panel zoom, then apply zoom transform
+  // Apply the target panel transform immediately (so the 200ms transition starts
+  // on the next frame), then defer the hi-res re-render until after the
+  // transition plays. The canvas CSS dims are invariant across hi-res scales
+  // (pageWidth * baseScale), so the running animation lands on the correct
+  // position regardless of when — or whether — the re-render has completed.
+  // Without this split, a fast flick has to wait on the async render before
+  // the transform starts, producing jitter on the next-panel transition.
   const zoomToPanel = useCallback(async (panel: Panel, stopIndex: number = 0) => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container || !pdfDocument) return;
 
-    const vW = window.innerWidth;
-    const vH = container.clientHeight;
+    const target = computePanelTransform(panel, stopIndex);
+    if (!target) return;
 
-    // CSS dimensions of the canvas (before any hi-res re-render)
-    const cw = parseFloat(canvas.style.width) || 0;
-    const ch = parseFloat(canvas.style.height) || 0;
-
-    // Expand panel bounding box by an adaptive margin to keep overflowing dialogue
-    // bubbles visible. Margin scales down for larger panels so wide panels don't
-    // waste their zoom budget on empty space.
-    const marginX = panel.width * 0.08 * (1 - panel.width);
-    const marginY = panel.height * 0.08 * (1 - panel.height);
-    const px = Math.max(0, panel.x - marginX);
-    const py = Math.max(0, panel.y - marginY);
-    const pw = Math.min(1 - px, panel.width + marginX * 2);
-    const ph = Math.min(1 - py, panel.height + marginY * 2);
-
-    // Compute stop count and zoom level for this panel
-    const { stopCount, zoom: computedZoom } = computeStopCount(panel);
-    const zoomScale = computedZoom;
-
-    // Re-render the canvas at higher resolution so it stays sharp when zoomed.
-    // The CSS size stays the same, but the backing pixel buffer gets more pixels.
-    const dpr = window.devicePixelRatio || 1;
-    const hiResScale = Math.min(zoomScale, 4); // cap backing resolution at 4x
-    const page = await pdfDocument.getPage(currentPage);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
-    const renderScale = baseScale * dpr * hiResScale;
-    const hiResViewport = page.getViewport({ scale: renderScale });
-
-    canvas.width = hiResViewport.width;
-    canvas.height = hiResViewport.height;
-    // CSS size stays at the original fit-to-viewport size
-    canvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
-    canvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
-
-    if (renderTaskRef.current) {
-      renderTaskRef.current.cancel();
-      renderTaskRef.current = null;
-    }
-    const renderTask = page.render({ canvas, viewport: hiResViewport });
-    renderTaskRef.current = { cancel: () => renderTask.cancel() };
-    try { await renderTask.promise; } catch { /* cancelled */ }
-
-    // Recalculate CSS dimensions after hi-res render (may differ slightly due to rounding)
-    const newCw = parseFloat(canvas.style.width) || cw;
-    const newCh = parseFloat(canvas.style.height) || ch;
-
-    // Recompute zoom with final dimensions
-    const pad = 0.95;
-    const finalMarginX = panel.width * 0.08 * (1 - panel.width);
-    const finalMarginY = panel.height * 0.08 * (1 - panel.height);
-    const finalPx = Math.max(0, panel.x - finalMarginX);
-    const finalPy = Math.max(0, panel.y - finalMarginY);
-    const finalPw = Math.min(1 - finalPx, panel.width + finalMarginX * 2);
-    const finalPh = Math.min(1 - finalPy, panel.height + finalMarginY * 2);
-
-    const finalScaleX = (vW * pad) / (finalPw * newCw);
-    const finalScaleY = (vH * pad) / (finalPh * newCh);
-    const finalFitZoom = Math.min(finalScaleX, finalScaleY, 5);
-    const finalHeightZoom = Math.min(finalScaleY, 5);
-
-    // Recompute stops with final dimensions (same aspect ratio guard as computeStopCount)
-    const overlapFactor = 0.85;
-    let finalZoom: number;
-    let finalStopCount: number;
-    const finalAspectRatio = (finalPw / finalPh) / (vW / vH);
-    if (finalAspectRatio <= 5 && (finalFitZoom >= 1.5 || finalAspectRatio <= 3)) {
-      finalZoom = finalFitZoom;
-      finalStopCount = 1;
-    } else {
-      const finalMultiZoom = Math.min(finalHeightZoom, 3.5);
-      const finalPanelWidthAtZoom = finalPw * newCw * finalMultiZoom;
-      const finalStride = vW * overlapFactor;
-      const finalRawStops = Math.max(1, Math.ceil((finalPanelWidthAtZoom - vW) / finalStride) + 1);
-      const finalMinStride = vW * 0.35;
-      let finalEffStops = finalRawStops;
-      while (finalEffStops > 1 && (finalPanelWidthAtZoom - vW) / (finalEffStops - 1) < finalMinStride) finalEffStops--;
-      const finalMaxStops = finalFitZoom < 1.5 ? 4 : 3;
-      if (finalEffStops <= 1) {
-        finalZoom = finalFitZoom;
-        finalStopCount = 1;
-      } else if (finalEffStops <= finalMaxStops) {
-        finalZoom = finalMultiZoom;
-        finalStopCount = finalEffStops;
-      } else {
-        finalStopCount = finalMaxStops;
-        finalZoom = Math.min(((finalMaxStops - 1) * finalStride + vW) / (finalPw * newCw), 3.5);
-      }
-    }
-
-    const natLeft = (vW - newCw) / 2;
-    const natTop = (vH - newCh) / 2;
-
-    if (finalStopCount <= 1) {
-      // Single stop: center the panel (original behavior)
-      const finalOx = (finalPx + finalPw / 2) * newCw;
-      const finalOy = (finalPy + finalPh / 2) * newCh;
-      zoomOriginRef.current = { x: finalOx, y: finalOy };
-      zoomScaleRef.current = finalZoom;
-      panRef.current = {
-        x: vW / 2 - natLeft - finalOx,
-        y: vH / 2 - natTop - finalOy,
-      };
-    } else {
-      // Multi-stop: zoom to height, compute per-stop horizontal pan
-      const panelLeftCss = finalPx * newCw;
-      const panelCenterY = (finalPy + finalPh / 2) * newCh;
-
-      // Use panel center as zoom origin for vertical centering
-      zoomOriginRef.current = { x: (finalPx + finalPw / 2) * newCw, y: panelCenterY };
-      zoomScaleRef.current = finalZoom;
-
-      // Panel width in on-screen pixels at finalZoom
-      const panelWidthZoomed = finalPw * newCw * finalZoom;
-
-      // Distribute stops evenly across the panel: first at left edge, last at
-      // right edge, middles spaced by (panelWidthZoomed - vW) / (stopCount - 1).
-      const uniformStride = (panelWidthZoomed - vW) / (finalStopCount - 1);
-
-      // The effective stop index, accounting for RTL
-      const effectiveStop = effectiveDirection === 'rtl' ? (finalStopCount - 1 - stopIndex) : stopIndex;
-
-      // Center of stop region in panel-local zoomed coordinates
-      const stopCenterX = effectiveStop * uniformStride + vW / 2;
-
-      // This center maps to a point on the canvas (pre-zoom)
-      const canvasCenterX = panelLeftCss + stopCenterX / finalZoom;
-
-      const ox = zoomOriginRef.current.x;
-      const oy = zoomOriginRef.current.y;
-      const panX = vW / 2 - natLeft - ox * (1 - finalZoom) - canvasCenterX * finalZoom;
-      const panYVal = vH / 2 - natTop - oy * (1 - finalZoom) - panelCenterY * finalZoom;
-
-      panRef.current = { x: panX, y: panYVal };
-    }
-
+    zoomOriginRef.current = { x: target.ox, y: target.oy };
+    zoomScaleRef.current = target.scale;
+    panRef.current = { x: target.panX, y: target.panY };
     isZoomedRef.current = true;
     setIsZoomed(true);
     applyZoomTransform(true);
-  }, [applyZoomTransform, pdfDocument, currentPage, computeStopCount, effectiveDirection]);
+
+    // Defer hi-res re-render until after the 200ms transform transition so the
+    // canvas.width = ... clear doesn't blank the backing buffer mid-animation.
+    if (panelRerenderTimerRef.current) {
+      clearTimeout(panelRerenderTimerRef.current);
+      panelRerenderTimerRef.current = null;
+    }
+    const renderPageNum = currentPage;
+    panelRerenderTimerRef.current = setTimeout(async () => {
+      panelRerenderTimerRef.current = null;
+      const liveCanvas = canvasRef.current;
+      const liveContainer = containerRef.current;
+      if (!liveCanvas || !liveContainer || !pdfDocument) return;
+      if (!isZoomedRef.current || currentPageRef.current !== renderPageNum) return;
+
+      const vW = window.innerWidth;
+      const vH = liveContainer.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const hiResScale = Math.min(target.scale, 4);
+      try {
+        const page = await pdfDocument.getPage(renderPageNum);
+        if (!isZoomedRef.current || currentPageRef.current !== renderPageNum) return;
+        const baseViewport = page.getViewport({ scale: 1 });
+        const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
+        const renderScale = baseScale * dpr * hiResScale;
+        const hiResViewport = page.getViewport({ scale: renderScale });
+
+        if (renderTaskRef.current) {
+          renderTaskRef.current.cancel();
+          renderTaskRef.current = null;
+        }
+        liveCanvas.width = hiResViewport.width;
+        liveCanvas.height = hiResViewport.height;
+        liveCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
+        liveCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
+        const renderTask = page.render({ canvas: liveCanvas, viewport: hiResViewport });
+        renderTaskRef.current = { cancel: () => renderTask.cancel() };
+        await renderTask.promise;
+      } catch {
+        /* cancelled */
+      }
+    }, 220);
+  }, [applyZoomTransform, pdfDocument, currentPage, computePanelTransform]);
 
   zoomToPanelRef.current = zoomToPanel;
 
