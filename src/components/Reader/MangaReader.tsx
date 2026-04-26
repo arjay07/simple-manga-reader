@@ -158,6 +158,10 @@ export default function MangaReader({
   const [hasPanelData, setHasPanelData] = useState(false);
   const [currentPanelIndex, setCurrentPanelIndex] = useState(-1); // -1 = full page view
   const currentPanelIndexRef = useRef(-1);
+  // Mirror of panelStopRef as state — bumped when stop changes within the same
+  // panel so the cross-page pre-render effect can re-fire on stop transitions
+  // (panelStopRef alone is invisible to React deps).
+  const [panelStopTick, setPanelStopTick] = useState(0);
   const autoZoomNextPageRef = useRef(false);
   const autoZoomDirectionRef = useRef<'forward' | 'back'>('forward');
   const panelStopRef = useRef(0); // current stop index within multi-stop wide panels
@@ -189,15 +193,37 @@ export default function MangaReader({
 
   // Panel drag state for progressive swipe between panels/stops
   interface PanelTransform { ox: number; oy: number; scale: number; panX: number; panY: number }
+  interface CrossPageTarget {
+    pageNum: number;
+    slot: 'prev' | 'next';
+    panel: Panel;
+    panelIndex: number;
+    stopIndex: number;
+    transform: PanelTransform;
+    readingDir: 'forward' | 'back';
+  }
   const panelDragRef = useRef<{
     start: PanelTransform;
     startPanel: Panel;
-    forwardTarget: PanelTransform | null;  // null = cross-page (no preview)
+    forwardTarget: PanelTransform | null;  // null = no within-page preview
     forwardTargetPanel: Panel | null;
     backwardTarget: PanelTransform | null;
     backwardTargetPanel: Panel | null;
+    crossPageForward: CrossPageTarget | null;
+    crossPageBackward: CrossPageTarget | null;
+    crossPageActive: 'forward' | 'backward' | null;
     isDragging: boolean;
   } | null>(null);
+  const crossPageReadyRef = useRef<{
+    forward: CrossPageTarget | null;
+    backward: CrossPageTarget | null;
+  }>({ forward: null, backward: null });
+  const prerenderTaskCancelRef = useRef<{ forward: boolean; backward: boolean }>({ forward: false, backward: false });
+  // Active cross-page commit's transitionend listener. Held in a ref so a new
+  // touch interrupting the strip mid-commit can `removeEventListener` it,
+  // preventing a leaked listener from firing on a later strip transition and
+  // running commitNeighborSlide a second time with a stale target.
+  const activeCommitListenerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => { focusModeRef.current = focusMode; }, [focusMode]);
   useEffect(() => { smartPanelZoomRef.current = smartPanelZoom; }, [smartPanelZoom]);
@@ -213,12 +239,24 @@ export default function MangaReader({
     // Drag preview: lerp the rect between the current panel projected through
     // `fromTransform` and the `toPanel` projected through `toTransform`, by
     // `progress`. Overrides `transformOverride` for projection purposes.
-    dragInterp?: {
-      fromTransform: PanelTransform;
-      toPanel: Panel;
-      toTransform: PanelTransform;
-      progress: number;
-    };
+    dragInterp?:
+      | {
+          kind?: 'within-page';
+          fromTransform: PanelTransform;
+          toPanel: Panel;
+          toTransform: PanelTransform;
+          progress: number;
+        }
+      | {
+          kind: 'cross-page';
+          fromPanel: Panel;
+          fromTransform: PanelTransform;
+          toPanel: Panel;
+          toTransform: PanelTransform;
+          slot: 'prev' | 'next';
+          stripTranslateX: number;
+          progress: number;
+        };
   } = {}) => {
     const group = letterboxGroupRef.current;
     if (!group) return;
@@ -232,63 +270,93 @@ export default function MangaReader({
         : null;
     }
 
+    const isCrossPage = opts.dragInterp?.kind === 'cross-page';
+
     const gating =
       focusModeRef.current &&
       smartPanelZoomRef.current &&
       hasPanelDataRef.current &&
       isZoomedRef.current &&
       !panelZoomPausedRef.current &&
-      !letterboxFadingRef.current &&
-      panel != null;
+      (!letterboxFadingRef.current || isCrossPage) &&
+      (panel != null || isCrossPage);
 
     const desiredOpacity = opts.fadeOpacity !== undefined ? opts.fadeOpacity : (gating ? 1 : 0);
     group.style.transition = 'opacity 150ms ease-out';
     group.style.opacity = String(desiredOpacity);
 
-    if (desiredOpacity === 0 || !panel) return;
+    if (desiredOpacity === 0 || (!panel && !isCrossPage)) return;
 
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
     const cw = parseFloat(canvas.style.width) || 0;
     const ch = parseFloat(canvas.style.height) || 0;
-    if (cw === 0 || ch === 0) return;
+    if ((cw === 0 || ch === 0) && !isCrossPage) return;
 
     const vW = window.innerWidth;
     const vH = container.clientHeight;
-    const natLeft = (vW - cw) / 2;
-    const natTop = (vH - ch) / 2;
 
-    // Project a panel's padded bbox through a transform into viewport coords.
-    const project = (p: Panel, t: PanelTransform) => {
+    // Project a panel's padded bbox through a transform into viewport coords,
+    // optionally on a non-current canvas with an extra horizontal offset.
+    const projectOn = (
+      p: Panel,
+      t: PanelTransform,
+      canvasW: number,
+      canvasH: number,
+      extraX: number,
+    ) => {
       const mx = p.width * 0.08 * (1 - p.width);
       const my = p.height * 0.08 * (1 - p.height);
       const px = Math.max(0, p.x - mx);
       const py = Math.max(0, p.y - my);
       const pw = Math.min(1 - px, p.width + mx * 2);
       const ph = Math.min(1 - py, p.height + my * 2);
+      const nLeft = (vW - canvasW) / 2;
+      const nTop = (vH - canvasH) / 2;
       const txVal = t.ox * (1 - t.scale) + t.panX;
       const tyVal = t.oy * (1 - t.scale) + t.panY;
-      const left = natLeft + txVal + px * cw * t.scale;
-      const top = natTop + tyVal + py * ch * t.scale;
+      const left = nLeft + extraX + txVal + px * canvasW * t.scale;
+      const top = nTop + tyVal + py * canvasH * t.scale;
       return {
         left,
         top,
-        right: left + pw * cw * t.scale,
-        bottom: top + ph * ch * t.scale,
+        right: left + pw * canvasW * t.scale,
+        bottom: top + ph * canvasH * t.scale,
       };
     };
+    const project = (p: Panel, t: PanelTransform) => projectOn(p, t, cw, ch, 0);
 
     // Project the padded bbox through the wrapper's transform. Using the
     // transform directly means bar rect lerp is a linear function of the
     // transform lerp — so CSS transitions on bar geometry stay in lock-step
     // with the wrapper's transform transition during panel-change animations.
     let rectLeft: number, rectTop: number, rectRight: number, rectBottom: number;
-    if (opts.dragInterp) {
+    if (opts.dragInterp?.kind === 'cross-page') {
+      const di = opts.dragInterp;
+      // Strip baseline is translateX(-100vw); fromCanvas is the current slot
+      // (no extra offset), toCanvas is in the prev (0) or next (-200vw) slot.
+      // The strip translation adds (stripTranslateX - (-vW)) to every frame.
+      const stripDelta = di.stripTranslateX + vW;
+      const fromExtra = stripDelta;
+      const toSlotX = di.slot === 'prev' ? -vW : vW;
+      const toExtra = toSlotX + stripDelta;
+      const neighborCanvas = di.slot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+      const ncw = neighborCanvas ? parseFloat(neighborCanvas.style.width) || cw : cw;
+      const nch = neighborCanvas ? parseFloat(neighborCanvas.style.height) || ch : ch;
+      const a = projectOn(di.fromPanel, di.fromTransform, cw, ch, fromExtra);
+      const b = projectOn(di.toPanel, di.toTransform, ncw, nch, toExtra);
+      const p = di.progress;
+      rectLeft = a.left + (b.left - a.left) * p;
+      rectTop = a.top + (b.top - a.top) * p;
+      rectRight = a.right + (b.right - a.right) * p;
+      rectBottom = a.bottom + (b.bottom - a.bottom) * p;
+    } else if (opts.dragInterp) {
       // Drag preview: lerp between (current panel at start transform) and
       // (target panel at its target transform) by drag progress. Without this
       // lerp, projecting the current panel through the interpolated transform
       // drags the frame off-viewport and leaves the incoming panel uncovered.
+      if (!panel) return;
       const a = project(panel, opts.dragInterp.fromTransform);
       const b = project(opts.dragInterp.toPanel, opts.dragInterp.toTransform);
       const p = opts.dragInterp.progress;
@@ -296,7 +364,7 @@ export default function MangaReader({
       rectTop = a.top + (b.top - a.top) * p;
       rectRight = a.right + (b.right - a.right) * p;
       rectBottom = a.bottom + (b.bottom - a.bottom) * p;
-    } else {
+    } else if (panel) {
       const t: PanelTransform = opts.transformOverride ?? {
         ox: zoomOriginRef.current.x,
         oy: zoomOriginRef.current.y,
@@ -305,6 +373,8 @@ export default function MangaReader({
         panY: panRef.current.y,
       };
       ({ left: rectLeft, top: rectTop, right: rectRight, bottom: rectBottom } = project(panel, t));
+    } else {
+      return;
     }
 
     // Round to integer pixels after clamping — fractional edges cause the
@@ -331,11 +401,21 @@ export default function MangaReader({
     }
     lastLetterboxWriteRef.current = { L, R, T, B, vW, vH, transition: barTransition };
 
+    // Inflate each bar 2px outward in directions where it abuts another bar
+    // or the viewport edge. Hides hairline seams from sub-pixel rounding on
+    // mobile (single line at the right edge, gaps at corners). The inflation
+    // is purely outward — interior edges (the ones facing the framed panel)
+    // stay exact so they don't crop into the panel.
+    const PAD = 2;
     const bars: Array<[HTMLDivElement | null, number, number, number, number]> = [
-      [letterboxTopRef.current,    0, 0, vW,                          T],
-      [letterboxBottomRef.current, 0, B, vW,                          Math.max(0, vH - B)],
-      [letterboxLeftRef.current,   0, T, L,                           Math.max(0, B - T)],
-      [letterboxRightRef.current,  R, T, Math.max(0, vW - R),         Math.max(0, B - T)],
+      // Top bar: extend left, right, top (past viewport), and bottom (over the side bars' top edge).
+      [letterboxTopRef.current,    -PAD,    -PAD,    vW + PAD * 2,                       T + PAD * 2],
+      // Bottom bar: extend left, right, top (over side bars' bottom edge), and bottom (past viewport).
+      [letterboxBottomRef.current, -PAD,    B - PAD, vW + PAD * 2,                       Math.max(0, vH - B + PAD * 2)],
+      // Left bar: extend left (past viewport), top and bottom (over top/bottom bars' edges); right edge stays at L (faces panel).
+      [letterboxLeftRef.current,   -PAD,    T - PAD, L + PAD,                            Math.max(0, B - T + PAD * 2)],
+      // Right bar: extend right (past viewport), top and bottom; left edge stays at R (faces panel).
+      [letterboxRightRef.current,  R,       T - PAD, Math.max(0, vW - R + PAD),          Math.max(0, B - T + PAD * 2)],
     ];
     for (const [el, left, top, width, height] of bars) {
       if (!el) continue;
@@ -1334,6 +1414,228 @@ export default function MangaReader({
 
   zoomToPanelRef.current = zoomToPanel;
 
+  // Reading direction → carousel slot mapping.
+  // Forward: RTL slides from left (prev slot), LTR from right (next slot). Back: reversed.
+  const pickSlot = useCallback((readingDir: 'forward' | 'back') => {
+    const slot: 'prev' | 'next' = readingDir === 'forward'
+      ? (effectiveDirection === 'rtl' ? 'prev' : 'next')
+      : (effectiveDirection === 'rtl' ? 'next' : 'prev');
+    const targetCanvas = slot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+    const targetWrapper = slot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+    const targetRenderTaskRef = slot === 'prev' ? prevRenderTaskRef : nextRenderTaskRef;
+    const slideTarget = slot === 'prev' ? 'translateX(0)' : 'translateX(-200vw)';
+    return { slot, targetCanvas, targetWrapper, targetRenderTaskRef, slideTarget };
+  }, [effectiveDirection]);
+
+  interface PrerenderResult {
+    transform: PanelTransform;
+    panelIndex: number;
+    resolvedStopIndex: number;
+  }
+
+  // Render `targetPageNum` zoomed to `targetPanel` into the chosen slot's canvas
+  // and apply the matching transform to its wrapper. Returns the computed
+  // transform + resolved stop index, or null if pre-conditions failed / render
+  // was cancelled.
+  const prerenderNeighbor = useCallback(async (
+    targetPageNum: number,
+    targetPanel: Panel,
+    targetPanelIndex: number,
+    targetStopIndex: number,
+    slot: 'prev' | 'next',
+  ): Promise<PrerenderResult | null> => {
+    const container = containerRef.current;
+    const targetCanvas = slot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+    const targetWrapper = slot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+    const targetRenderTaskRef = slot === 'prev' ? prevRenderTaskRef : nextRenderTaskRef;
+    if (!container || !targetCanvas || !targetWrapper || !pdfDocument) return null;
+
+    const vW = window.innerWidth;
+    const vH = container.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+
+    const marginX = targetPanel.width * 0.08 * (1 - targetPanel.width);
+    const marginY = targetPanel.height * 0.08 * (1 - targetPanel.height);
+    const px = Math.max(0, targetPanel.x - marginX);
+    const py = Math.max(0, targetPanel.y - marginY);
+    const pw = Math.min(1 - px, targetPanel.width + marginX * 2);
+    const ph = Math.min(1 - py, targetPanel.height + marginY * 2);
+
+    const page = await pdfDocument.getPage(targetPageNum);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
+
+    const pad = 0.95;
+    const cssCw = baseViewport.width * baseScale;
+    const cssCh = baseViewport.height * baseScale;
+    const scaleXVal = (vW * pad) / (pw * cssCw);
+    const scaleYVal = (vH * pad) / (ph * cssCh);
+    const fitZoom = Math.min(scaleXVal, scaleYVal, 5);
+    const heightZoom = Math.min(scaleYVal, 5);
+
+    const overlapFactor = 0.85;
+    const panelAspect = pw / ph;
+    const viewportAspect = vW / vH;
+    const aspectRatio = panelAspect / viewportAspect;
+    let preZoom: number;
+    if (aspectRatio <= 5 && (fitZoom >= 1.5 || aspectRatio <= 3)) {
+      preZoom = fitZoom;
+    } else {
+      const multiZoom = Math.min(heightZoom, 3.5);
+      const pWidthAtZoom = pw * cssCw * multiZoom;
+      const stride = vW * overlapFactor;
+      const rawStops = Math.max(1, Math.ceil((pWidthAtZoom - vW) / stride) + 1);
+      const minStride = vW * 0.35;
+      let effStops = rawStops;
+      while (effStops > 1 && (pWidthAtZoom - vW) / (effStops - 1) < minStride) effStops--;
+      const maxStops = fitZoom < 1.5 ? 4 : 3;
+      if (effStops <= 1) { preZoom = fitZoom; }
+      else if (effStops <= maxStops) { preZoom = multiZoom; }
+      else { preZoom = Math.min(((maxStops - 1) * stride + vW) / (pw * cssCw), 3.5); }
+    }
+
+    const hiResScale = Math.min(preZoom, 4);
+    const renderScale = baseScale * dpr * hiResScale;
+    const hiResViewport = page.getViewport({ scale: renderScale });
+
+    targetCanvas.width = hiResViewport.width;
+    targetCanvas.height = hiResViewport.height;
+    targetCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
+    targetCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
+
+    if (targetRenderTaskRef.current) {
+      targetRenderTaskRef.current.cancel();
+      targetRenderTaskRef.current = null;
+    }
+    const renderTask = page.render({ canvas: targetCanvas, viewport: hiResViewport });
+    targetRenderTaskRef.current = { cancel: () => renderTask.cancel() };
+    try { await renderTask.promise; } catch { return null; }
+
+    const newCw = parseFloat(targetCanvas.style.width);
+    const newCh = parseFloat(targetCanvas.style.height);
+    const ox = (px + pw / 2) * newCw;
+    const oy = (py + ph / 2) * newCh;
+
+    const fScaleX = (vW * pad) / (pw * newCw);
+    const fScaleY = (vH * pad) / (ph * newCh);
+    const fFitZoom = Math.min(fScaleX, fScaleY, 5);
+    const fHeightZoom = Math.min(fScaleY, 5);
+    let fZoom: number;
+    let fStopCount: number;
+    const fAspectRatio = (pw / ph) / (vW / vH);
+    if (fAspectRatio <= 5 && (fFitZoom >= 1.5 || fAspectRatio <= 3)) {
+      fZoom = fFitZoom; fStopCount = 1;
+    } else {
+      const fMultiZoom = Math.min(fHeightZoom, 3.5);
+      const fPanelWidthAtZoom = pw * newCw * fMultiZoom;
+      const fStride = vW * overlapFactor;
+      const fRawStops = Math.max(1, Math.ceil((fPanelWidthAtZoom - vW) / fStride) + 1);
+      const fMinStride = vW * 0.35;
+      let fEffStops = fRawStops;
+      while (fEffStops > 1 && (fPanelWidthAtZoom - vW) / (fEffStops - 1) < fMinStride) fEffStops--;
+      const fMaxStops = fFitZoom < 1.5 ? 4 : 3;
+      if (fEffStops <= 1) { fZoom = fFitZoom; fStopCount = 1; }
+      else if (fEffStops <= fMaxStops) { fZoom = fMultiZoom; fStopCount = fEffStops; }
+      else { fStopCount = fMaxStops; fZoom = Math.min(((fMaxStops - 1) * fStride + vW) / (pw * newCw), 3.5); }
+    }
+
+    const natLeft = (vW - newCw) / 2;
+    const natTop = (vH - newCh) / 2;
+
+    const resolvedStopIndex = targetStopIndex < 0 ? fStopCount - 1 : targetStopIndex;
+
+    let panX: number, panY: number;
+    if (fStopCount <= 1) {
+      panX = vW / 2 - natLeft - ox;
+      panY = vH / 2 - natTop - oy;
+    } else {
+      const panelLeftCss = px * newCw;
+      const panelCenterY = (py + ph / 2) * newCh;
+      const panelWidthZoomed = pw * newCw * fZoom;
+      const uniformStride = (panelWidthZoomed - vW) / (fStopCount - 1);
+      const effectiveStop = effectiveDirection === 'rtl' ? (fStopCount - 1 - resolvedStopIndex) : resolvedStopIndex;
+      const stopCenterX = effectiveStop * uniformStride + vW / 2;
+      const canvasCenterX = panelLeftCss + stopCenterX / fZoom;
+      panX = vW / 2 - natLeft - ox * (1 - fZoom) - canvasCenterX * fZoom;
+      panY = vH / 2 - natTop - oy * (1 - fZoom) - panelCenterY * fZoom;
+    }
+
+    const tx = ox * (1 - fZoom) + panX;
+    const ty = oy * (1 - fZoom) + panY;
+
+    targetWrapper.style.transition = 'none';
+    targetWrapper.style.transformOrigin = '0 0';
+    targetWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
+
+    return {
+      transform: { ox, oy, scale: fZoom, panX, panY },
+      panelIndex: targetPanelIndex,
+      resolvedStopIndex,
+    };
+  }, [effectiveDirection, pdfDocument]);
+
+  // Post-strip-slide cleanup: copy neighbor canvas/transform into current,
+  // snap strip back, sync zoom refs, commit page change, re-apply transform.
+  const commitNeighborSlide = useCallback((opts: {
+    targetPageNum: number;
+    targetPanelIndex: number;
+    resolvedStopIndex: number;
+    transform: PanelTransform;
+    slot: 'prev' | 'next';
+    readingDir: 'forward' | 'back';
+  }) => {
+    const strip = stripRef.current;
+    const targetCanvas = opts.slot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+    const targetWrapper = opts.slot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+    if (!strip) return;
+
+    const { ox, oy, scale: fZoom, panX, panY } = opts.transform;
+    const tx = ox * (1 - fZoom) + panX;
+    const ty = oy * (1 - fZoom) + panY;
+
+    const destCanvas = canvasRef.current;
+    const destWrapper = zoomWrapperRef.current;
+    if (destCanvas && destWrapper && targetCanvas) {
+      destCanvas.width = targetCanvas.width;
+      destCanvas.height = targetCanvas.height;
+      destCanvas.style.width = targetCanvas.style.width;
+      destCanvas.style.height = targetCanvas.style.height;
+      const ctx = destCanvas.getContext('2d');
+      if (ctx) ctx.drawImage(targetCanvas, 0, 0);
+
+      destWrapper.style.transition = 'none';
+      destWrapper.style.transformOrigin = '0 0';
+      destWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
+    }
+
+    if (targetWrapper) targetWrapper.style.transform = 'none';
+
+    strip.style.transition = 'none';
+    strip.style.transform = 'translateX(-100vw)';
+
+    zoomOriginRef.current = { x: ox, y: oy };
+    zoomScaleRef.current = fZoom;
+    panRef.current = { x: panX, y: panY };
+    isZoomedRef.current = true;
+    setIsZoomed(true);
+
+    autoZoomNextPageRef.current = true;
+    setCurrentPanelIndex(opts.targetPanelIndex);
+    currentPanelIndexRef.current = opts.targetPanelIndex;
+    panelStopRef.current = opts.resolvedStopIndex;
+    if (opts.readingDir === 'forward') goNextPage();
+    else goPrevPage();
+    // Sync currentPageRef synchronously so writeLetterbox (called in the
+    // rAF below, before React's commit re-runs our useEffect sync) looks
+    // up the new page's panel data, not the old page's.
+    currentPageRef.current = opts.targetPageNum;
+
+    requestAnimationFrame(() => {
+      letterboxFadingRef.current = false;
+      applyZoomTransform(false);
+    });
+  }, [goNextPage, goPrevPage, applyZoomTransform]);
+
   // Shared helper: pre-render a page zoomed to a specific panel on a carousel slot,
   // then slide the strip to reveal it. Used by advancePanel and retreatPanel for
   // cross-page transitions (panel→panel, non-panel→panel).
@@ -1346,17 +1648,7 @@ export default function MangaReader({
   ): boolean => {
     const strip = stripRef.current;
     const container = containerRef.current;
-
-    // Pick carousel slot based on reading direction
-    // Forward: RTL slides from left (prev slot), LTR from right (next slot)
-    // Back: reversed
-    const useSlot = readingDir === 'forward'
-      ? (effectiveDirection === 'rtl' ? 'prev' : 'next')
-      : (effectiveDirection === 'rtl' ? 'next' : 'prev');
-    const targetCanvas = useSlot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
-    const targetWrapper = useSlot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
-    const targetRenderTaskRef = useSlot === 'prev' ? prevRenderTaskRef : nextRenderTaskRef;
-    const slideTarget = useSlot === 'prev' ? 'translateX(0)' : 'translateX(-200vw)';
+    const { slot, targetCanvas, targetWrapper, slideTarget } = pickSlot(readingDir);
 
     if (!targetCanvas || !targetWrapper || !strip || !container || !pdfDocument) {
       return false;
@@ -1368,193 +1660,140 @@ export default function MangaReader({
     writeLetterbox({ fadeOpacity: 0 });
 
     (async () => {
-      const vW = window.innerWidth;
-      const vH = container.clientHeight;
-      const dpr = window.devicePixelRatio || 1;
+      const result = await prerenderNeighbor(targetPageNum, targetPanel, targetPanelIndex, targetStopIndex, slot);
+      if (!result) return;
 
-      // Compute padded panel bounds (same adaptive margins as zoomToPanel)
-      const marginX = targetPanel.width * 0.08 * (1 - targetPanel.width);
-      const marginY = targetPanel.height * 0.08 * (1 - targetPanel.height);
-      const px = Math.max(0, targetPanel.x - marginX);
-      const py = Math.max(0, targetPanel.y - marginY);
-      const pw = Math.min(1 - px, targetPanel.width + marginX * 2);
-      const ph = Math.min(1 - py, targetPanel.height + marginY * 2);
-
-      // Render target page at hi-res
-      const page = await pdfDocument.getPage(targetPageNum);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
-
-      const pad = 0.95;
-      const cssCw = baseViewport.width * baseScale;
-      const cssCh = baseViewport.height * baseScale;
-      const scaleXVal = (vW * pad) / (pw * cssCw);
-      const scaleYVal = (vH * pad) / (ph * cssCh);
-      const fitZoom = Math.min(scaleXVal, scaleYVal, 5);
-      const heightZoom = Math.min(scaleYVal, 5);
-
-      // Compute stop count (same logic as computeStopCount)
-      const overlapFactor = 0.85;
-      const panelAspect = pw / ph;
-      const viewportAspect = vW / vH;
-      const aspectRatio = panelAspect / viewportAspect;
-      let preZoom: number;
-      if (aspectRatio <= 5 && (fitZoom >= 1.5 || aspectRatio <= 3)) {
-        preZoom = fitZoom;
-      } else {
-        const multiZoom = Math.min(heightZoom, 3.5);
-        const pWidthAtZoom = pw * cssCw * multiZoom;
-        const stride = vW * overlapFactor;
-        const rawStops = Math.max(1, Math.ceil((pWidthAtZoom - vW) / stride) + 1);
-        const minStride = vW * 0.35;
-        let effStops = rawStops;
-        while (effStops > 1 && (pWidthAtZoom - vW) / (effStops - 1) < minStride) effStops--;
-        const maxStops = fitZoom < 1.5 ? 4 : 3;
-        if (effStops <= 1) { preZoom = fitZoom; }
-        else if (effStops <= maxStops) { preZoom = multiZoom; }
-        else { preZoom = Math.min(((maxStops - 1) * stride + vW) / (pw * cssCw), 3.5); }
-      }
-
-      const hiResScale = Math.min(preZoom, 4);
-      const renderScale = baseScale * dpr * hiResScale;
-      const hiResViewport = page.getViewport({ scale: renderScale });
-
-      targetCanvas.width = hiResViewport.width;
-      targetCanvas.height = hiResViewport.height;
-      targetCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
-      targetCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
-
-      if (targetRenderTaskRef.current) {
-        targetRenderTaskRef.current.cancel();
-        targetRenderTaskRef.current = null;
-      }
-      const renderTask = page.render({ canvas: targetCanvas, viewport: hiResViewport });
-      targetRenderTaskRef.current = { cancel: () => renderTask.cancel() };
-      try { await renderTask.promise; } catch { return; }
-
-      // Compute zoom transform with final canvas dimensions
-      const newCw = parseFloat(targetCanvas.style.width);
-      const newCh = parseFloat(targetCanvas.style.height);
-      const ox = (px + pw / 2) * newCw;
-      const oy = (py + ph / 2) * newCh;
-
-      // Recompute final zoom with actual dimensions (same logic as computeStopCount)
-      const fScaleX = (vW * pad) / (pw * newCw);
-      const fScaleY = (vH * pad) / (ph * newCh);
-      const fFitZoom = Math.min(fScaleX, fScaleY, 5);
-      const fHeightZoom = Math.min(fScaleY, 5);
-      let fZoom: number;
-      let fStopCount: number;
-      const fAspectRatio = (pw / ph) / (vW / vH);
-      if (fAspectRatio <= 5 && (fFitZoom >= 1.5 || fAspectRatio <= 3)) {
-        fZoom = fFitZoom; fStopCount = 1;
-      } else {
-        const fMultiZoom = Math.min(fHeightZoom, 3.5);
-        const fPanelWidthAtZoom = pw * newCw * fMultiZoom;
-        const fStride = vW * overlapFactor;
-        const fRawStops = Math.max(1, Math.ceil((fPanelWidthAtZoom - vW) / fStride) + 1);
-        const fMinStride = vW * 0.35;
-        let fEffStops = fRawStops;
-        while (fEffStops > 1 && (fPanelWidthAtZoom - vW) / (fEffStops - 1) < fMinStride) fEffStops--;
-        const fMaxStops = fFitZoom < 1.5 ? 4 : 3;
-        if (fEffStops <= 1) { fZoom = fFitZoom; fStopCount = 1; }
-        else if (fEffStops <= fMaxStops) { fZoom = fMultiZoom; fStopCount = fEffStops; }
-        else { fStopCount = fMaxStops; fZoom = Math.min(((fMaxStops - 1) * fStride + vW) / (pw * newCw), 3.5); }
-      }
-
-      const natLeft = (vW - newCw) / 2;
-      const natTop = (vH - newCh) / 2;
-
-      // Resolve targetStopIndex: -1 means "use last stop"
-      const resolvedStopIndex = targetStopIndex < 0 ? fStopCount - 1 : targetStopIndex;
-
-      let panX: number, panY: number;
-      if (fStopCount <= 1) {
-        panX = vW / 2 - natLeft - ox;
-        panY = vH / 2 - natTop - oy;
-      } else {
-        // Multi-stop: distribute stops evenly across the panel width.
-        const panelLeftCss = px * newCw;
-        const panelCenterY = (py + ph / 2) * newCh;
-        const panelWidthZoomed = pw * newCw * fZoom;
-        const uniformStride = (panelWidthZoomed - vW) / (fStopCount - 1);
-        const effectiveStop = effectiveDirection === 'rtl' ? (fStopCount - 1 - resolvedStopIndex) : resolvedStopIndex;
-        const stopCenterX = effectiveStop * uniformStride + vW / 2;
-        const canvasCenterX = panelLeftCss + stopCenterX / fZoom;
-        panX = vW / 2 - natLeft - ox * (1 - fZoom) - canvasCenterX * fZoom;
-        panY = vH / 2 - natTop - oy * (1 - fZoom) - panelCenterY * fZoom;
-      }
-
-      const tx = ox * (1 - fZoom) + panX;
-      const ty = oy * (1 - fZoom) + panY;
-
-      // Apply zoom transform to target wrapper (no transition)
-      targetWrapper.style.transition = 'none';
-      targetWrapper.style.transformOrigin = '0 0';
-      targetWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
-
-      // Slide the strip
       strip.style.transition = 'transform 250ms ease-out';
       strip.style.transform = slideTarget;
 
       const onSlideEnd = () => {
         strip.removeEventListener('transitionend', onSlideEnd);
-
-        // Copy target canvas state into current canvas
-        const destCanvas = canvasRef.current;
-        const destWrapper = zoomWrapperRef.current;
-        if (destCanvas && destWrapper) {
-          destCanvas.width = targetCanvas.width;
-          destCanvas.height = targetCanvas.height;
-          destCanvas.style.width = targetCanvas.style.width;
-          destCanvas.style.height = targetCanvas.style.height;
-          const ctx = destCanvas.getContext('2d');
-          if (ctx) ctx.drawImage(targetCanvas, 0, 0);
-
-          destWrapper.style.transition = 'none';
-          destWrapper.style.transformOrigin = '0 0';
-          destWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
-        }
-
-        // Reset target wrapper
-        targetWrapper.style.transform = 'none';
-
-        // Snap strip back (no transition)
-        strip.style.transition = 'none';
-        strip.style.transform = 'translateX(-100vw)';
-
-        // Set zoom state on current
-        zoomOriginRef.current = { x: ox, y: oy };
-        zoomScaleRef.current = fZoom;
-        panRef.current = { x: panX, y: panY };
-        isZoomedRef.current = true;
-        setIsZoomed(true);
-
-        // Commit page change (skip normal render since canvas is already set up)
-        autoZoomNextPageRef.current = true;
-        setCurrentPanelIndex(targetPanelIndex);
-        currentPanelIndexRef.current = targetPanelIndex;
-        panelStopRef.current = resolvedStopIndex;
-        if (readingDir === 'forward') goNextPage();
-        else goPrevPage();
-        // Sync currentPageRef synchronously so writeLetterbox (called in the
-        // rAF below, before React's commit re-runs our useEffect sync) looks
-        // up the new page's panel data, not the old page's.
-        currentPageRef.current = targetPageNum;
-
-        // Re-apply zoom transform after React re-render settles, then fade
-        // letterbox back in at the new panel's rect (no rect transition —
-        // we want the bars to appear already framing the new panel).
-        requestAnimationFrame(() => {
-          letterboxFadingRef.current = false;
-          applyZoomTransform(false);
+        commitNeighborSlide({
+          targetPageNum,
+          targetPanelIndex: result.panelIndex,
+          resolvedStopIndex: result.resolvedStopIndex,
+          transform: result.transform,
+          slot,
+          readingDir,
         });
       };
       strip.addEventListener('transitionend', onSlideEnd);
     })();
 
     return true;
-  }, [effectiveDirection, pdfDocument, applyZoomTransform, goNextPage, goPrevPage, writeLetterbox]);
+  }, [pdfDocument, pickSlot, prerenderNeighbor, commitNeighborSlide, writeLetterbox]);
+
+  // Pre-render the neighbor page when zoomed onto a boundary panel of the
+  // current page. This lets a subsequent cross-page touch drag preview the
+  // neighbor instantly instead of waiting on the render at gesture start.
+  useEffect(() => {
+    if (!isZoomed || !smartPanelZoom || !hasPanelData || isVertical || spreadMode || !pdfDocument) {
+      crossPageReadyRef.current = { forward: null, backward: null };
+      return;
+    }
+    const pageData = panelDataMap.get(currentPage);
+    if (!pageData || pageData.pageType !== 'panels' || pageData.panels.length === 0) {
+      crossPageReadyRef.current = { forward: null, backward: null };
+      return;
+    }
+    if (currentPanelIndex < 0 || currentPanelIndex >= pageData.panels.length) {
+      crossPageReadyRef.current = { forward: null, backward: null };
+      return;
+    }
+    // Eagerly pre-render BOTH neighbors as soon as the user is zoomed on any
+    // panel of the current page — not just the boundary. The render takes
+    // 100–400 ms; gating on the boundary panel meant the user often reached
+    // the edge before the render finished, falling back to rubber-band.
+    // Pre-rendering on entry trades one extra background render for a
+    // reliable live preview when the user actually crosses the boundary.
+    const isLastPanel = true;
+    const isFirstPanel = true;
+
+    let cancelled = false;
+    prerenderTaskCancelRef.current = { forward: false, backward: false };
+
+    const forwardSlot = pickSlot('forward').slot;
+    const backwardSlot = pickSlot('back').slot;
+
+    const nextPageNum = currentPage + 1;
+    const prevPageNum = currentPage - 1;
+    const nextPageData = panelDataMap.get(nextPageNum);
+    const prevPageData = panelDataMap.get(prevPageNum);
+    const nextFirstPanel = isLastPanel
+      && nextPageNum <= pdfDocument.numPages
+      && nextPageData?.pageType === 'panels'
+      && nextPageData.panels.length > 0
+        ? nextPageData.panels[0]
+        : null;
+    const prevLastPanel = isFirstPanel
+      && prevPageNum >= 1
+      && prevPageData?.pageType === 'panels'
+      && prevPageData.panels.length > 0
+        ? prevPageData.panels[prevPageData.panels.length - 1]
+        : null;
+
+    if (!nextFirstPanel) {
+      crossPageReadyRef.current.forward = null;
+      const w = forwardSlot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+      if (w) { w.style.transition = 'none'; w.style.transform = 'none'; }
+    }
+    if (!prevLastPanel) {
+      crossPageReadyRef.current.backward = null;
+      const w = backwardSlot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+      if (w) { w.style.transition = 'none'; w.style.transform = 'none'; }
+    }
+
+    if (nextFirstPanel) {
+      crossPageReadyRef.current.forward = null;
+      (async () => {
+        const result = await prerenderNeighbor(nextPageNum, nextFirstPanel, 0, 0, forwardSlot);
+        if (cancelled || prerenderTaskCancelRef.current.forward) return;
+        if (!result) return;
+        crossPageReadyRef.current.forward = {
+          pageNum: nextPageNum,
+          slot: forwardSlot,
+          panel: nextFirstPanel,
+          panelIndex: result.panelIndex,
+          stopIndex: result.resolvedStopIndex,
+          transform: result.transform,
+          readingDir: 'forward',
+        };
+      })();
+    }
+
+    if (prevLastPanel) {
+      crossPageReadyRef.current.backward = null;
+      const lastIndex = (prevPageData?.panels.length ?? 1) - 1;
+      (async () => {
+        const result = await prerenderNeighbor(prevPageNum, prevLastPanel, lastIndex, -1, backwardSlot);
+        if (cancelled || prerenderTaskCancelRef.current.backward) return;
+        if (!result) return;
+        crossPageReadyRef.current.backward = {
+          pageNum: prevPageNum,
+          slot: backwardSlot,
+          panel: prevLastPanel,
+          panelIndex: result.panelIndex,
+          stopIndex: result.resolvedStopIndex,
+          transform: result.transform,
+          readingDir: 'back',
+        };
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+      prerenderTaskCancelRef.current = { forward: true, backward: true };
+      if (prevRenderTaskRef.current) {
+        prevRenderTaskRef.current.cancel();
+        prevRenderTaskRef.current = null;
+      }
+      if (nextRenderTaskRef.current) {
+        nextRenderTaskRef.current.cancel();
+        nextRenderTaskRef.current = null;
+      }
+    };
+  }, [currentPage, currentPanelIndex, panelStopTick, isZoomed, smartPanelZoom, hasPanelData,
+      panelDataMap, pdfDocument, isVertical, spreadMode, pickSlot, prerenderNeighbor]);
 
   // Navigate to next panel (returns true if handled)
   const advancePanel = useCallback((): boolean => {
@@ -1571,6 +1810,7 @@ export default function MangaReader({
         const { stopCount } = computeStopCount(curPanel);
         if (panelStopRef.current < stopCount - 1) {
           panelStopRef.current++;
+          setPanelStopTick(t => t + 1);
           zoomToPanel(curPanel, panelStopRef.current);
           return true;
         }
@@ -1627,6 +1867,7 @@ export default function MangaReader({
       const curIdx = currentPanelIndexRef.current;
       if (curIdx >= 0 && curIdx < pageData.panels.length && panelStopRef.current > 0) {
         panelStopRef.current--;
+        setPanelStopTick(t => t + 1);
         zoomToPanel(pageData.panels[curIdx], panelStopRef.current);
         return true;
       }
@@ -1756,6 +1997,20 @@ export default function MangaReader({
       gestureHadPinchRef.current = false;
     }
 
+    // If a cross-page commit's strip transition is still in flight, finalize
+    // it synchronously so this new gesture sees the post-commit page/zoom
+    // state. Without this, panelDragRef gets populated from stale refs and
+    // the next move applies a within-page lerp against the wrong page.
+    if (activeCommitListenerRef.current) {
+      const strip = stripRef.current;
+      const pendingListener = activeCommitListenerRef.current;
+      if (strip) {
+        strip.removeEventListener('transitionend', pendingListener);
+      }
+      activeCommitListenerRef.current = null;
+      pendingListener();
+    }
+
     // Pinch start: second finger joins. Route to pinch, skipping single-finger setup.
     if (e.touches.length === 2 && !pinchStateRef.current) {
       // During an unzoomed strip animation, defer pinch — safer than cancelling mid-slide.
@@ -1771,6 +2026,17 @@ export default function MangaReader({
       if (tapTimerRef.current) {
         clearTimeout(tapTimerRef.current);
         tapTimerRef.current = null;
+      }
+      // If a cross-page drag was mid-flight, the strip may still be partially
+      // translated — snap it back so the pinch operates on the centered slot.
+      const strip = stripRef.current;
+      if (strip) {
+        if (activeCommitListenerRef.current) {
+          strip.removeEventListener('transitionend', activeCommitListenerRef.current);
+          activeCommitListenerRef.current = null;
+        }
+        strip.style.transition = 'none';
+        strip.style.transform = 'translateX(-100vw)';
       }
 
       const { mid: mid0, dist: dist0 } = getPinchGeometry(e.touches);
@@ -1821,7 +2087,10 @@ export default function MangaReader({
     // Cache panel drag state: current transform + forward/backward targets
     panelDragRef.current = null;
     if (smartPanelZoom && hasPanelData && isZoomedRef.current) {
-      const pageData = panelDataMap.get(currentPage);
+      // Use the ref, not the state — handleTouchStart may run synchronously
+      // after a just-flushed cross-page commit, before React has applied
+      // setCurrentPage. The ref is updated synchronously inside commit.
+      const pageData = panelDataMap.get(currentPageRef.current);
       const curIdx = currentPanelIndexRef.current;
       if (pageData && curIdx >= 0 && curIdx < pageData.panels.length) {
         const curPanel = pageData.panels[curIdx];
@@ -1862,6 +2131,18 @@ export default function MangaReader({
           backwardTarget = computePanelTransform(backwardTargetPanel, prevStops - 1);
         }
 
+        // Cross-page targets: only when within-page is null in that direction
+        // and we're at the matching boundary panel.
+        const isAtLastPanel = curIdx === pageData.panels.length - 1
+          && curStop === stopCount - 1;
+        const isAtFirstPanel = curIdx === 0 && curStop === 0;
+        const crossPageForward = (forwardTarget === null && isAtLastPanel)
+          ? crossPageReadyRef.current.forward
+          : null;
+        const crossPageBackward = (backwardTarget === null && isAtFirstPanel)
+          ? crossPageReadyRef.current.backward
+          : null;
+
         panelDragRef.current = {
           start,
           startPanel: curPanel,
@@ -1869,6 +2150,9 @@ export default function MangaReader({
           forwardTargetPanel,
           backwardTarget,
           backwardTargetPanel,
+          crossPageForward,
+          crossPageBackward,
+          crossPageActive: null,
           isDragging: false,
         };
       }
@@ -1914,7 +2198,45 @@ export default function MangaReader({
         const progress = Math.min(Math.abs(adjustedDx) / threshold, 1);
 
         if (!target) {
-          // Cross-page: rubber-band with resistance
+          // Cross-page live preview: if the neighbor is pre-rendered, translate
+          // the strip with the finger and morph the letterbox between the two
+          // panel rects. Otherwise fall back to the existing rubber-band path.
+          const crossTarget = isForward ? drag.crossPageForward : drag.crossPageBackward;
+          if (crossTarget) {
+            drag.crossPageActive = isForward ? 'forward' : 'backward';
+            const vW = window.innerWidth;
+            const crossProgress = Math.min(Math.abs(adjustedDx) / vW, 1);
+            // Move strip in CSS vw units so slots (sized via w-screen / 100vw)
+            // tile exactly. Mixing JS px with vw causes a sub-pixel drift that
+            // compounds visibly into overlapping slots on devices where
+            // window.innerWidth ≠ 100vw (mobile address bar, scrollbars).
+            const slotTargetOffsetPx = crossTarget.slot === 'prev' ? vW : -vW;
+            const stripOffsetPx = slotTargetOffsetPx * crossProgress;
+            const stripTranslateX = -vW + stripOffsetPx;
+            const strip = stripRef.current;
+            if (strip) {
+              if (activeCommitListenerRef.current) {
+                strip.removeEventListener('transitionend', activeCommitListenerRef.current);
+                activeCommitListenerRef.current = null;
+              }
+              strip.style.transition = 'none';
+              strip.style.transform = `translateX(calc(-100vw + ${stripOffsetPx}px))`;
+            }
+            writeLetterbox({
+              dragInterp: {
+                kind: 'cross-page',
+                fromPanel: drag.startPanel,
+                fromTransform: drag.start,
+                toPanel: crossTarget.panel,
+                toTransform: crossTarget.transform,
+                slot: crossTarget.slot,
+                stripTranslateX,
+                progress: crossProgress,
+              },
+            });
+            return;
+          }
+          // Cross-page fallback: rubber-band with resistance
           const resistance = 0.15;
           const t = { ...drag.start, panX: drag.start.panX + adjustedDx * resistance };
           applyInterpolatedTransform(t);
@@ -1960,7 +2282,7 @@ export default function MangaReader({
 
     dragOffsetRef.current = dx;
     setStripTransform(dx, false);
-  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, applyInterpolatedTransform, smartPanelZoom, hasPanelData, effectiveDirection, getPinchGeometry]);
+  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, applyInterpolatedTransform, smartPanelZoom, hasPanelData, effectiveDirection, getPinchGeometry, writeLetterbox]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -2132,6 +2454,18 @@ export default function MangaReader({
 
         if (isVerticalSwipe) {
           if (drag?.isDragging) restoreStart();
+          // Snap strip back if a cross-page drag was in progress.
+          if (drag?.crossPageActive) {
+            const strip = stripRef.current;
+            if (strip) {
+              if (activeCommitListenerRef.current) {
+                strip.removeEventListener('transitionend', activeCommitListenerRef.current);
+                activeCommitListenerRef.current = null;
+              }
+              strip.style.transition = 'none';
+              strip.style.transform = 'translateX(-100vw)';
+            }
+          }
           navigateReading(dy < 0 ? 'forward' : 'back');
           return;
         }
@@ -2141,6 +2475,90 @@ export default function MangaReader({
         const adjustedDx = Math.abs(dx) > deadZone ? dx - Math.sign(dx) * deadZone : 0;
         const isForward = effectiveDirection === 'rtl' ? adjustedDx > 0 : adjustedDx < 0;
         const shouldCommit = isFastFlick || Math.abs(adjustedDx) >= commitThreshold;
+
+        // Cross-page live drag commit/cancel
+        if (drag?.crossPageActive) {
+          const isCrossForward = drag.crossPageActive === 'forward';
+          const crossTarget = isCrossForward ? drag.crossPageForward : drag.crossPageBackward;
+          const strip = stripRef.current;
+          if (crossTarget && strip) {
+            const vW = window.innerWidth;
+            const crossProgress = Math.min(Math.abs(adjustedDx) / vW, 1);
+            const slotTargetX = crossTarget.slot === 'prev' ? 0 : -2 * vW;
+            const directionMatchesActive = isCrossForward === isForward;
+
+            if (shouldCommit && directionMatchesActive && Math.abs(dx) >= deadZone) {
+              const remaining = Math.max(0.05, 1 - crossProgress);
+              const duration = Math.round(250 * remaining);
+              const slotTargetOffset = crossTarget.slot === 'prev' ? '100vw' : '-100vw';
+              strip.style.transition = `transform ${duration}ms ease-out`;
+              strip.style.transform = `translateX(calc(-100vw + ${slotTargetOffset}))`;
+              // Cancel any prior leaked listener before registering a new one.
+              if (activeCommitListenerRef.current) {
+                strip.removeEventListener('transitionend', activeCommitListenerRef.current);
+                activeCommitListenerRef.current = null;
+              }
+              const onEnd = () => {
+                strip.removeEventListener('transitionend', onEnd);
+                if (activeCommitListenerRef.current === onEnd) {
+                  activeCommitListenerRef.current = null;
+                }
+                commitNeighborSlide({
+                  targetPageNum: crossTarget.pageNum,
+                  targetPanelIndex: crossTarget.panelIndex,
+                  resolvedStopIndex: crossTarget.stopIndex,
+                  transform: crossTarget.transform,
+                  slot: crossTarget.slot,
+                  readingDir: crossTarget.readingDir,
+                });
+              };
+              activeCommitListenerRef.current = onEnd;
+              strip.addEventListener('transitionend', onEnd);
+              return;
+            }
+
+            // Cancel: spring strip back to centered, letterbox lerps back to from-rect.
+            const duration = Math.max(80, Math.round(250 * crossProgress));
+            if (activeCommitListenerRef.current) {
+              strip.removeEventListener('transitionend', activeCommitListenerRef.current);
+              activeCommitListenerRef.current = null;
+            }
+            strip.style.transition = `transform ${duration}ms ease-out`;
+            strip.style.transform = `translateX(calc(-100vw + 0px))`;
+            // Drive letterbox back to the from-rect via a sequence of rAFs
+            // matching the strip transition. Cheaper than a full rAF loop:
+            // CSS transitions on the bar rects don't apply (geometry is set
+            // explicitly each frame), so we step it manually.
+            const startTime = performance.now();
+            const stepBack = () => {
+              const now = performance.now();
+              const t = Math.min(1, (now - startTime) / duration);
+              // ease-out cubic
+              const eased = 1 - Math.pow(1 - t, 3);
+              const liveProgress = crossProgress * (1 - eased);
+              const liveStripX = -vW + (slotTargetX - (-vW)) * liveProgress;
+              writeLetterbox({
+                dragInterp: {
+                  kind: 'cross-page',
+                  fromPanel: drag.startPanel,
+                  fromTransform: drag.start,
+                  toPanel: crossTarget.panel,
+                  toTransform: crossTarget.transform,
+                  slot: crossTarget.slot,
+                  stripTranslateX: liveStripX,
+                  progress: liveProgress,
+                },
+              });
+              if (t < 1) requestAnimationFrame(stepBack);
+              else {
+                // Settle on the from-rect with no morph.
+                writeLetterbox({});
+              }
+            };
+            requestAnimationFrame(stepBack);
+            return;
+          }
+        }
 
         if (shouldCommit && Math.abs(dx) >= deadZone) {
           if (drag?.isDragging) restoreStart();
@@ -2190,7 +2608,7 @@ export default function MangaReader({
      navigateReading, springBack, applyZoomTransform,
      detectDoubleTap, enterZoom, exitZoom, smartPanelZoom, hasPanelData,
      hitTestPanel, zoomToPanel, panelDataMap, currentPage,
-     computePanBounds, scheduleHiResRerender]
+     computePanBounds, scheduleHiResRerender, commitNeighborSlide, writeLetterbox]
   );
 
   // Legacy swipe for spread mode (tap-based, no drag)
@@ -2328,7 +2746,7 @@ export default function MangaReader({
   return (
     <div
       ref={containerRef}
-      className="relative w-screen h-screen bg-black overflow-hidden select-none"
+      className={`relative w-screen h-screen bg-black overflow-hidden select-none ${isVertical ? '' : 'touch-none'}`}
       onTouchStart={handleTouchStart}
       onTouchMove={!isVertical && !spreadMode ? handleTouchMove : undefined}
       onTouchEnd={handleTouchEnd}
@@ -2366,19 +2784,19 @@ export default function MangaReader({
             }}
           >
             {/* Prev slot */}
-            <div className="w-screen h-full flex items-center justify-center">
+            <div className="w-screen h-full flex items-center justify-center overflow-hidden">
               <div ref={prevZoomWrapperRef} style={{ transformOrigin: '0 0' }}>
                 <canvas ref={prevCanvasRef} className="max-h-full max-w-full" />
               </div>
             </div>
             {/* Current slot */}
-            <div className="w-screen h-full flex items-center justify-center">
+            <div className="w-screen h-full flex items-center justify-center overflow-hidden">
               <div ref={zoomWrapperRef} style={{ transformOrigin: '0 0' }}>
                 <canvas ref={canvasRef} className="max-h-full max-w-full" />
               </div>
             </div>
             {/* Next slot */}
-            <div className="w-screen h-full flex items-center justify-center">
+            <div className="w-screen h-full flex items-center justify-center overflow-hidden">
               <div ref={nextZoomWrapperRef} style={{ transformOrigin: '0 0' }}>
                 <canvas ref={nextCanvasRef} className="max-h-full max-w-full" />
               </div>
