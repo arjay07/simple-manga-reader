@@ -1716,31 +1716,101 @@ export default function MangaReader({
       return false;
     }
 
-    // Fade letterbox out for the duration of the strip slide — rect interpolation
-    // across two different page geometries would look broken.
+    // Capture from-state for the cross-page letterbox morph (matches the
+    // touch drag's live preview) so keyboard/wheel/tap navigation gets the
+    // same continuous frame transition rather than a fade-out/fade-in.
+    const fromPageData = panelDataMapRef.current.get(currentPageRef.current);
+    const fromIdx = currentPanelIndexRef.current;
+    const fromPanel = fromPageData?.pageType === 'panels'
+      && fromIdx >= 0 && fromIdx < fromPageData.panels.length
+        ? fromPageData.panels[fromIdx]
+        : null;
+    const fromTransform: PanelTransform = {
+      ox: zoomOriginRef.current.x,
+      oy: zoomOriginRef.current.y,
+      scale: zoomScaleRef.current,
+      panX: panRef.current.x,
+      panY: panRef.current.y,
+    };
+
+    // Suppress writeLetterbox's default panel-rect path during the slide —
+    // the cross-page morph branch in stepMorph below bypasses this gate.
     letterboxFadingRef.current = true;
-    writeLetterbox({ fadeOpacity: 0 });
 
-    (async () => {
-      const result = await prerenderNeighbor(targetPageNum, targetPanel, targetPanelIndex, targetStopIndex, slot);
-      if (!result) return;
+    let cancelMorph = false;
+    const vW = window.innerWidth;
+    const startStripX = -vW;
+    const slotEndX = slot === 'prev' ? 0 : -2 * vW;
 
+    const startSlide = (resTransform: PanelTransform, resPanelIndex: number, resStopIndex: number) => {
       strip.style.transition = 'transform 250ms ease-out';
       strip.style.transform = slideTarget;
 
+      const canMorph = fromPanel != null
+        && focusModeRef.current
+        && smartPanelZoomRef.current
+        && hasPanelDataRef.current
+        && isZoomedRef.current;
+      if (canMorph) {
+        const startTime = performance.now();
+        const duration = 250;
+        const stepMorph = () => {
+          if (cancelMorph) return;
+          const t = Math.min(1, (performance.now() - startTime) / duration);
+          // ease-out cubic, matching the strip's CSS transition curve
+          const eased = 1 - Math.pow(1 - t, 3);
+          const stripTranslateX = startStripX + (slotEndX - startStripX) * eased;
+          writeLetterbox({
+            dragInterp: {
+              kind: 'cross-page',
+              fromPanel: fromPanel as Panel,
+              fromTransform,
+              toPanel: targetPanel,
+              toTransform: resTransform,
+              slot,
+              stripTranslateX,
+              progress: eased,
+            },
+          });
+          if (t < 1) requestAnimationFrame(stepMorph);
+        };
+        requestAnimationFrame(stepMorph);
+      }
+
       const onSlideEnd = () => {
         strip.removeEventListener('transitionend', onSlideEnd);
+        cancelMorph = true;
         commitNeighborSlide({
           targetPageNum,
-          targetPanelIndex: result.panelIndex,
-          resolvedStopIndex: result.resolvedStopIndex,
-          transform: result.transform,
+          targetPanelIndex: resPanelIndex,
+          resolvedStopIndex: resStopIndex,
+          transform: resTransform,
           slot,
           readingDir,
         });
       };
       strip.addEventListener('transitionend', onSlideEnd);
-    })();
+    };
+
+    // If the eager pre-render has already produced a matching cache entry
+    // (boundary panel pre-render or yo-yo opposite-slot seed), reuse the
+    // already-rendered canvas + transform and skip the await.
+    const cacheKey: 'forward' | 'backward' = readingDir === 'forward' ? 'forward' : 'backward';
+    const cached = crossPageReadyRef.current[cacheKey];
+    const cacheValid = cached !== null
+      && cached.pageNum === targetPageNum
+      && cached.panelIndex === targetPanelIndex
+      && cached.slot === slot;
+
+    if (cacheValid && cached) {
+      startSlide(cached.transform, cached.panelIndex, cached.stopIndex);
+    } else {
+      (async () => {
+        const result = await prerenderNeighbor(targetPageNum, targetPanel, targetPanelIndex, targetStopIndex, slot);
+        if (!result) return;
+        startSlide(result.transform, result.panelIndex, result.resolvedStopIndex);
+      })();
+    }
 
     return true;
   }, [pdfDocument, pickSlot, prerenderNeighbor, commitNeighborSlide, writeLetterbox]);
