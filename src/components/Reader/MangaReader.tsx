@@ -660,7 +660,7 @@ export default function MangaReader({
       if (!container) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const containerWidth = container.clientWidth * widthFraction;
+      const containerWidth = window.innerWidth * widthFraction;
       const containerHeight = container.clientHeight;
 
       const viewport = page.getViewport({ scale: 1 });
@@ -720,12 +720,17 @@ export default function MangaReader({
       // Skip normal render — canvas is already set up by strip transition or zoomToPanel.
       // Do NOT clear the flag here — the zoom-reset effect needs to see it.
       // But still render neighbor canvases at 1x so they're ready for subsequent navigation.
+      // Skip any neighbor slot that was just seeded by commitNeighborSlide — overwriting it
+      // here with default-fit content would desync from the matching cached transform.
+      const slotIsCached = (s: 'prev' | 'next') =>
+        crossPageReadyRef.current.forward?.slot === s ||
+        crossPageReadyRef.current.backward?.slot === s;
       const { prevPage, nextPage } = getNeighborPages(currentPage);
-      if (nextCanvasRef.current) {
+      if (nextCanvasRef.current && !slotIsCached('next')) {
         renderPage(pdfDocument, nextPage, nextCanvasRef.current, nextRenderTaskRef);
       }
       setTimeout(() => {
-        if (prevCanvasRef.current && pdfDocument) {
+        if (prevCanvasRef.current && pdfDocument && !slotIsCached('prev')) {
           renderPage(pdfDocument, prevPage, prevCanvasRef.current, prevRenderTaskRef);
         }
       }, 0);
@@ -771,7 +776,18 @@ export default function MangaReader({
           renderPage(pdfDocument, rightPage, canvasRef2.current, renderTaskRef2, 0.5);
         }
       } else {
-        // Re-render all three strip canvases
+        // Re-render all three strip canvases. Resize blows away the seeded
+        // hi-res content on the neighbor canvases, so the cached cross-page
+        // transforms (computed at the old vW) are no longer valid — drop them
+        // and clear any committed neighbor wrapper transform so the cross-page
+        // pre-render effect can rebuild the cache at the new vW on next paint.
+        crossPageReadyRef.current = { forward: null, backward: null };
+        for (const w of [prevZoomWrapperRef.current, nextZoomWrapperRef.current]) {
+          if (w) {
+            w.style.transition = 'none';
+            w.style.transform = 'none';
+          }
+        }
         renderPage(pdfDocument, currentPage, canvasRef.current, renderTaskRef);
 
         const { prevPage, nextPage } = getNeighborPages(currentPage);
