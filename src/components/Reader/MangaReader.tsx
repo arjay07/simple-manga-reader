@@ -1593,8 +1593,51 @@ export default function MangaReader({
     const tx = ox * (1 - fZoom) + panX;
     const ty = oy * (1 - fZoom) + panY;
 
+    // Capture the OLD page's state before we overwrite anything. We'll use
+    // it below to seed the opposite slot so an immediate yo-yo back to where
+    // we came from has a live preview without waiting on a new pre-render.
+    const oldPageNum = currentPageRef.current;
+    const oldPanelIndex = currentPanelIndexRef.current;
+    const oldStopIndex = panelStopRef.current;
+    const oldTransform: PanelTransform = {
+      ox: zoomOriginRef.current.x,
+      oy: zoomOriginRef.current.y,
+      scale: zoomScaleRef.current,
+      panX: panRef.current.x,
+      panY: panRef.current.y,
+    };
+    const oldPageData = panelDataMapRef.current.get(oldPageNum);
+    const oldPanel = oldPageData?.pageType === 'panels'
+      && oldPanelIndex >= 0 && oldPanelIndex < oldPageData.panels.length
+        ? oldPageData.panels[oldPanelIndex]
+        : null;
+
+    const oppositeSlot: 'prev' | 'next' = opts.slot === 'prev' ? 'next' : 'prev';
+    const oppositeCanvas = oppositeSlot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
+    const oppositeWrapper = oppositeSlot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
+
     const destCanvas = canvasRef.current;
     const destWrapper = zoomWrapperRef.current;
+
+    // Preserve the outgoing page into the opposite slot BEFORE we overwrite
+    // destCanvas. Both the canvas content and the wrapper transform are
+    // valid for an immediate reverse-direction cross-page drag.
+    if (destCanvas && destCanvas.width > 0 && oppositeCanvas) {
+      oppositeCanvas.width = destCanvas.width;
+      oppositeCanvas.height = destCanvas.height;
+      oppositeCanvas.style.width = destCanvas.style.width;
+      oppositeCanvas.style.height = destCanvas.style.height;
+      const oCtx = oppositeCanvas.getContext('2d');
+      if (oCtx) oCtx.drawImage(destCanvas, 0, 0);
+    }
+    if (oppositeWrapper && oldPanel) {
+      const oldTx = oldTransform.ox * (1 - oldTransform.scale) + oldTransform.panX;
+      const oldTy = oldTransform.oy * (1 - oldTransform.scale) + oldTransform.panY;
+      oppositeWrapper.style.transition = 'none';
+      oppositeWrapper.style.transformOrigin = '0 0';
+      oppositeWrapper.style.transform = `translate(${oldTx}px, ${oldTy}px) scale(${oldTransform.scale})`;
+    }
+
     if (destCanvas && destWrapper && targetCanvas) {
       destCanvas.width = targetCanvas.width;
       destCanvas.height = targetCanvas.height;
@@ -1629,6 +1672,25 @@ export default function MangaReader({
     // rAF below, before React's commit re-runs our useEffect sync) looks
     // up the new page's panel data, not the old page's.
     currentPageRef.current = opts.targetPageNum;
+
+    // Seed the cross-page-ready entry for the OPPOSITE direction (back to
+    // the page we just left) using the old page state we captured above.
+    // The neighbor canvas + wrapper are already in place from the copy
+    // above, so this is a fully-formed cache hit — a yo-yo back gesture
+    // engages the live preview immediately, no re-render needed.
+    if (oldPanel) {
+      const oppositeKey: 'forward' | 'backward' = opts.readingDir === 'forward' ? 'backward' : 'forward';
+      const oppositeReadingDir: 'forward' | 'back' = opts.readingDir === 'forward' ? 'back' : 'forward';
+      crossPageReadyRef.current[oppositeKey] = {
+        pageNum: oldPageNum,
+        slot: oppositeSlot,
+        panel: oldPanel,
+        panelIndex: oldPanelIndex,
+        stopIndex: oldStopIndex,
+        transform: oldTransform,
+        readingDir: oppositeReadingDir,
+      };
+    }
 
     requestAnimationFrame(() => {
       letterboxFadingRef.current = false;
@@ -1744,40 +1806,54 @@ export default function MangaReader({
     }
 
     if (nextFirstPanel) {
-      crossPageReadyRef.current.forward = null;
-      (async () => {
-        const result = await prerenderNeighbor(nextPageNum, nextFirstPanel, 0, 0, forwardSlot);
-        if (cancelled || prerenderTaskCancelRef.current.forward) return;
-        if (!result) return;
-        crossPageReadyRef.current.forward = {
-          pageNum: nextPageNum,
-          slot: forwardSlot,
-          panel: nextFirstPanel,
-          panelIndex: result.panelIndex,
-          stopIndex: result.resolvedStopIndex,
-          transform: result.transform,
-          readingDir: 'forward',
-        };
-      })();
+      const cached = crossPageReadyRef.current.forward;
+      const cacheValid = cached !== null
+        && cached.pageNum === nextPageNum
+        && cached.panelIndex === 0
+        && cached.slot === forwardSlot;
+      if (!cacheValid) {
+        crossPageReadyRef.current.forward = null;
+        (async () => {
+          const result = await prerenderNeighbor(nextPageNum, nextFirstPanel, 0, 0, forwardSlot);
+          if (cancelled || prerenderTaskCancelRef.current.forward) return;
+          if (!result) return;
+          crossPageReadyRef.current.forward = {
+            pageNum: nextPageNum,
+            slot: forwardSlot,
+            panel: nextFirstPanel,
+            panelIndex: result.panelIndex,
+            stopIndex: result.resolvedStopIndex,
+            transform: result.transform,
+            readingDir: 'forward',
+          };
+        })();
+      }
     }
 
     if (prevLastPanel) {
-      crossPageReadyRef.current.backward = null;
       const lastIndex = (prevPageData?.panels.length ?? 1) - 1;
-      (async () => {
-        const result = await prerenderNeighbor(prevPageNum, prevLastPanel, lastIndex, -1, backwardSlot);
-        if (cancelled || prerenderTaskCancelRef.current.backward) return;
-        if (!result) return;
-        crossPageReadyRef.current.backward = {
-          pageNum: prevPageNum,
-          slot: backwardSlot,
-          panel: prevLastPanel,
-          panelIndex: result.panelIndex,
-          stopIndex: result.resolvedStopIndex,
-          transform: result.transform,
-          readingDir: 'back',
-        };
-      })();
+      const cached = crossPageReadyRef.current.backward;
+      const cacheValid = cached !== null
+        && cached.pageNum === prevPageNum
+        && cached.panelIndex === lastIndex
+        && cached.slot === backwardSlot;
+      if (!cacheValid) {
+        crossPageReadyRef.current.backward = null;
+        (async () => {
+          const result = await prerenderNeighbor(prevPageNum, prevLastPanel, lastIndex, -1, backwardSlot);
+          if (cancelled || prerenderTaskCancelRef.current.backward) return;
+          if (!result) return;
+          crossPageReadyRef.current.backward = {
+            pageNum: prevPageNum,
+            slot: backwardSlot,
+            panel: prevLastPanel,
+            panelIndex: result.panelIndex,
+            stopIndex: result.resolvedStopIndex,
+            transform: result.transform,
+            readingDir: 'back',
+          };
+        })();
+      }
     }
 
     return () => {
