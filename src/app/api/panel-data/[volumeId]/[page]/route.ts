@@ -6,6 +6,7 @@ import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
 import { getPanelDataForPage } from '@/lib/panel-data';
 import { extractPageAsImage } from '@/lib/panel-detect/extract-page';
+import type { Format } from '@/lib/page-source';
 
 export async function GET(
   _req: NextRequest,
@@ -22,21 +23,21 @@ export async function GET(
 
   const db = getDb();
   const row = db.prepare(
-    `SELECT s.folder_name, v.filename
+    `SELECT s.folder_name, v.filename, v.format
      FROM volumes v JOIN series s ON v.series_id = s.id
      WHERE v.id = ?`
-  ).get(vid) as { folder_name: string; filename: string } | undefined;
+  ).get(vid) as { folder_name: string; filename: string; format: Format } | undefined;
 
   if (!row) {
     return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
   }
 
-  const pdfPath = path.join(getMangaDir(), row.folder_name, row.filename);
-  if (!fs.existsSync(pdfPath)) {
-    return NextResponse.json({ error: 'PDF file not found' }, { status: 404 });
+  const filePath = path.join(getMangaDir(), row.folder_name, row.filename);
+  if (!fs.existsSync(filePath)) {
+    return NextResponse.json({ error: 'Volume file not found' }, { status: 404 });
   }
 
-  const imageBuffer = await extractPageAsImage(pdfPath, pageNum);
+  const imageBuffer = await extractPageAsImage(filePath, row.format, pageNum);
   const metadata = await sharp(imageBuffer).metadata();
   const jpegBuffer = await sharp(imageBuffer).jpeg({ quality: 80 }).toBuffer();
   const pageImage = jpegBuffer.toString('base64');

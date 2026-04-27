@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
-import { isPdftoppmAvailable, extractFirstPage, ensureCoversDir, getSeriesCoverPath } from '@/lib/pdf-utils';
+import { ensureCoversDir, getSeriesCoverPath } from '@/lib/pdf-utils';
+import { openPageSource, type Format } from '@/lib/page-source';
 
 interface VolumeRow {
   id: number;
   filename: string;
   folder_name: string;
+  format: Format;
 }
 
 export async function POST(
@@ -24,16 +27,9 @@ export async function POST(
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    if (!isPdftoppmAvailable()) {
-      return NextResponse.json(
-        { error: 'pdftoppm is not installed. Install poppler-utils to enable cover generation.' },
-        { status: 500 }
-      );
-    }
-
     // Find the first volume (lowest volume_number)
     const volume = db.prepare(`
-      SELECT v.id, v.filename, s.folder_name
+      SELECT v.id, v.filename, v.format, s.folder_name
       FROM volumes v
       JOIN series s ON s.id = v.series_id
       WHERE v.series_id = ?
@@ -45,14 +41,21 @@ export async function POST(
       return NextResponse.json({ error: 'No volumes found for this series' }, { status: 400 });
     }
 
-    const pdfPath = path.join(getMangaDir(), volume.folder_name, volume.filename);
-    if (!fs.existsSync(pdfPath)) {
-      return NextResponse.json({ error: 'Volume PDF not found on disk' }, { status: 404 });
+    const filePath = path.join(getMangaDir(), volume.folder_name, volume.filename);
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json({ error: 'Volume file not found on disk' }, { status: 404 });
     }
 
     ensureCoversDir(series.folder_name);
     const coverPath = getSeriesCoverPath(series.folder_name);
-    extractFirstPage(pdfPath, coverPath);
+
+    const source = openPageSource(filePath, volume.format);
+    try {
+      const firstPage = await source.extractPage(1, { dpi: 150 });
+      await sharp(firstPage).jpeg({ quality: 90 }).toFile(coverPath);
+    } finally {
+      await source.close();
+    }
 
     db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(coverPath, Number(seriesId));
 

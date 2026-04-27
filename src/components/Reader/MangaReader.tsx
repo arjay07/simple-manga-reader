@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProfile } from '@/components/ProfileProvider';
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { parseReaderSettings, type ReaderSettings } from '@/lib/reader-settings';
 import ReaderToolbar from './ReaderToolbar';
 import ReaderBottomBar from './ReaderBottomBar';
@@ -12,6 +11,7 @@ import VerticalScrollView from './VerticalScrollView';
 import EndOfVolumeOverlay from './EndOfVolumeOverlay';
 import { apiUrl } from '@/lib/basePath';
 import type { Panel, PageType } from '@/lib/panel-detect/types';
+import { loadDocumentSource, type DocumentFormat, type DocumentPage, type DocumentSource } from './document-source';
 
 interface PanelDataPage {
   pageNumber: number;
@@ -29,6 +29,7 @@ interface PanelDataResponse {
 interface MangaReaderProps {
   seriesId: string;
   volumeId: string;
+  format: DocumentFormat;
   initialPage?: number;
   profileId?: number;
   title?: string;
@@ -43,6 +44,7 @@ interface MangaReaderProps {
 export default function MangaReader({
   seriesId,
   volumeId,
+  format,
   initialPage = 1,
   profileId,
   title = '',
@@ -75,7 +77,7 @@ export default function MangaReader({
   const effectiveDirection = settings.readingDirection;
   const spreadMode = settings.pageMode === 'spread' && !isVertical;
 
-  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
+  const [pdfDocument, setPdfDocument] = useState<DocumentSource | null>(null);
   const [currentPage, setCurrentPage] = useState(() => {
     if (typeof window === 'undefined' || !profileId) return initialPage;
     const key = `progress:${profileId}:${volumeId}`;
@@ -598,7 +600,7 @@ export default function MangaReader({
     return () => window.removeEventListener('resize', onResize);
   }, [writeLetterbox]);
 
-  // Load PDF
+  // Load the document (PDF or CBZ) via the format-aware DocumentSource factory
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -607,25 +609,7 @@ export default function MangaReader({
     const url = apiUrl(`/api/manga/${seriesId}/${volumeId}/pdf`);
     (async () => {
       try {
-        // Polyfill Map.prototype.getOrInsertComputed (required by pdfjs-dist ≥5.5)
-        // @ts-expect-error polyfill
-        if (typeof Map.prototype.getOrInsertComputed === 'undefined') {
-          // @ts-expect-error polyfill
-          Map.prototype.getOrInsertComputed = function <K, V>(key: K, callbackfn: (key: K) => V): V {
-            if (this.has(key)) return this.get(key);
-            const value = callbackfn(key);
-            this.set(key, value);
-            return value;
-          };
-        }
-
-        const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
-        if (cancelled) return;
-        GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url
-        ).toString();
-        const doc = await getDocument(url).promise;
+        const doc = await loadDocumentSource(url, format);
         if (cancelled) {
           doc.destroy();
           return;
@@ -635,20 +619,20 @@ export default function MangaReader({
         setLoading(false);
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to load PDF:', err);
-          setError('Failed to load PDF');
+          console.error('Failed to load volume:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load volume');
           setLoading(false);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [seriesId, volumeId]);
+  }, [seriesId, volumeId, format]);
 
   // Render a single page onto a canvas
   const renderPage = useCallback(
     async (
-      doc: PDFDocumentProxy,
+      doc: DocumentSource,
       pageNum: number,
       canvas: HTMLCanvasElement,
       taskRef: React.MutableRefObject<{ cancel: () => void } | null>,
@@ -665,7 +649,7 @@ export default function MangaReader({
         taskRef.current = null;
       }
 
-      const page: PDFPageProxy = await doc.getPage(pageNum);
+      const page: DocumentPage = await doc.getPage(pageNum);
       const container = containerRef.current;
       if (!container) return;
 

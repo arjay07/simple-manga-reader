@@ -33,11 +33,11 @@ export async function GET(
 
     const db = getDb();
     const row = db.prepare(
-      `SELECT s.folder_name, v.filename
+      `SELECT s.folder_name, v.filename, v.format
        FROM volumes v
        JOIN series s ON v.series_id = s.id
        WHERE v.series_id = ? AND v.id = ?`
-    ).get(seriesId, volumeId) as { folder_name: string; filename: string } | undefined;
+    ).get(seriesId, volumeId) as { folder_name: string; filename: string; format: 'pdf' | 'cbz' } | undefined;
 
     if (!row) {
       return new Response('Volume not found', { status: 404 });
@@ -50,8 +50,11 @@ export async function GET(
     }
 
     const { size: fileSize } = fs.statSync(filePath);
+    const contentType = row.format === 'cbz'
+      ? 'application/vnd.comicbook+zip'
+      : 'application/pdf';
     const commonHeaders = {
-      'Content-Type': 'application/pdf',
+      'Content-Type': contentType,
       'Content-Disposition': 'inline',
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, max-age=86400',

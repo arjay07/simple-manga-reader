@@ -24,7 +24,7 @@ export async function GET(
     }
 
     const volumes = db.prepare(
-      'SELECT id, title, filename, volume_number, page_count, created_at FROM volumes WHERE series_id = ? ORDER BY volume_number'
+      'SELECT id, title, filename, volume_number, page_count, format, created_at FROM volumes WHERE series_id = ? ORDER BY volume_number'
     ).all(seriesId);
 
     return NextResponse.json({ ...series, volumes });

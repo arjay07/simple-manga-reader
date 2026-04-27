@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { DocumentSource } from './document-source';
 
 const BUFFER_PAGES = 3;
 const RESIZE_DEBOUNCE_MS = 300;
 
 interface VerticalScrollViewProps {
-  pdfDocument: PDFDocumentProxy;
+  pdfDocument: DocumentSource;
   totalPages: number;
   onPageChange: (page: number) => void;
   snapEnabled?: boolean;

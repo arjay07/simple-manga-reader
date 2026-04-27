@@ -15,9 +15,9 @@ No test framework is configured.
 
 ## Architecture
 
-Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. Manga PDFs live on the filesystem at `MANGA_DIR` (default `~/manga`), organized as `<Series>/<Volume>.pdf`. Metadata and reading progress are stored in SQLite (`data/manga-reader.db`).
+Self-hosted manga reader. Next.js 16 App Router serves both the UI and API. Volumes live on the filesystem at `MANGA_DIR` (default `~/manga`), organized as `<Series>/<Volume>.{pdf|cbz}` (one file per volume, flat per series; `.cbz` is a ZIP archive of per-page raster images). Metadata and reading progress are stored in SQLite (`data/manga-reader.db`).
 
-**User flow:** Profile selector (`/`) → Library grid (`/library`) → Series detail (`/library/[seriesId]`) → PDF reader (`/read/[seriesId]/[volumeId]`).
+**User flow:** Profile selector (`/`) → Library grid (`/library`) → Series detail (`/library/[seriesId]`) → reader (`/read/[seriesId]/[volumeId]`).
 
 ### Key patterns
 
@@ -25,10 +25,11 @@ Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. 
 - **Next.js 15+ async params:** Route handlers use `{ params }: { params: Promise<{ id: string }> }` — await params before use.
 - **Tailwind CSS v4:** No `tailwind.config.ts`. All config lives in `globals.css` using `@theme inline` and `@variant dark`. Theme colors are CSS custom properties (`--background`, `--foreground`, `--surface`, etc.) registered as Tailwind utilities (`bg-background`, `text-foreground`, etc.).
 - **Dark mode:** Class strategy via `.dark` on `<html>`. An inline script in `layout.tsx` prevents flash. ThemeProvider manages state; ProfileProvider can override per-profile.
-- **Startup scan:** `src/instrumentation.ts` calls `scanMangaDirectory()` on server boot to sync the filesystem into SQLite.
-- **DB singleton:** `src/lib/db.ts` caches a single `Database` instance. Schema is created on first access (profiles, series, volumes, reading_progress tables).
-- **PDF rendering:** Client-side via pdfjs-dist v5. Worker configured with `new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url)`.
-- **Cover images:** Stored in `public/covers/{seriesId}.jpg`. Uploaded via API or resolved by `src/lib/covers.ts`.
+- **Startup scan:** `src/instrumentation.ts` calls `scanMangaDirectory()` on server boot to sync the filesystem into SQLite. Scanner accepts `.pdf` and `.cbz` (case-insensitive); `volumes.format` records which one.
+- **DB singleton:** `src/lib/db.ts` caches a single `Database` instance. Schema is created on first access (profiles, series, volumes, reading_progress tables). `volumes.format` is `'pdf' | 'cbz'`, defaulting to `'pdf'` for pre-existing rows.
+- **Server-side `PageSource` abstraction:** `src/lib/page-source/` exposes `openPageSource(filePath, format)` returning `{ countPages, extractPage, close }`. PDF backed by `pdftoppm`/`mupdf`; CBZ backed by `node-stream-zip`. Panel-detect (`extract-page.ts`, `job-manager.ts`) and the thumbnail route route through this — no direct PDF/ZIP calls in those paths.
+- **Client-side `DocumentSource` abstraction:** `src/components/Reader/document-source.ts` exposes `loadDocumentSource(url, format)` returning a `DocumentSource` with `numPages` and `getPage(n)`. `PdfDocumentSource` wraps `pdfjs-dist` v5 (worker URL via `new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url)`); `CbzDocumentSource` fetches the archive, parses with JSZip, decodes images on demand into `HTMLImageElement`s with a 5-page LRU cache, and renders by `drawImage` onto the supplied canvas.
+- **Cover images:** Stored in `public/covers/{seriesId}.jpg`. Uploaded via API or resolved by `src/lib/covers.ts`. Per-volume thumbnails go to `MANGA_DIR/<Series>/.covers/vol-<filename-with-ext>.jpg` — the file extension is part of the cache key so `Vol01.pdf` and `Vol01.cbz` resolve to distinct thumbnails.
 
 ### Providers (nested in layout.tsx)
 
@@ -37,8 +38,8 @@ Self-hosted manga PDF reader. Next.js 16 App Router serves both the UI and API. 
 ### API routes
 
 All under `src/app/api/`. Key endpoints:
-- `GET /api/manga` — list all series; `GET /api/manga/[seriesId]` — series detail with volumes
-- `GET /api/manga/[seriesId]/[volumeId]/pdf` — stream PDF file for reader
+- `GET /api/manga` — list all series; `GET /api/manga/[seriesId]` — series detail with volumes (volume rows include `format`)
+- `GET /api/manga/[seriesId]/[volumeId]/pdf` — stream the underlying volume file (PDF or CBZ); response `Content-Type` is `application/pdf` or `application/vnd.comicbook+zip` based on the volume's `format`. Range requests honoured for both.
 - `GET|POST /api/progress?profileId=&volumeId=` — read/write reading progress
 - `GET|POST|DELETE /api/profiles` — profile CRUD
 

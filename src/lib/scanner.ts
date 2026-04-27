@@ -2,17 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import { getDb } from './db';
 import { getMangaDir } from './settings';
+import type { Format } from './page-source';
+
+const SUPPORTED_EXTENSIONS = ['.pdf', '.cbz'] as const;
+
+function formatFromFilename(filename: string): Format | null {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.cbz') return 'cbz';
+  return null;
+}
 
 /**
  * Extract volume number from a filename like "DRAGON BALL VOLUME 01.pdf"
+ * or "Series Volume 03.cbz". Works for any recognised extension.
  */
 export function extractVolumeNumber(filename: string): number | null {
-  // Match common patterns: "Volume 01", "Vol. 3", "v02", "#5", or standalone numbers
   const patterns = [
     /vol(?:ume)?\.?\s*(\d+)/i,
     /v(\d+)/i,
     /#(\d+)/i,
-    /(\d+)\.pdf$/i,
+    /(\d+)\.(?:pdf|cbz)$/i,
   ];
 
   for (const pattern of patterns) {
@@ -50,7 +60,7 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
   );
 
   const insertVolume = db.prepare(
-    `INSERT INTO volumes (series_id, title, filename, volume_number) VALUES (?, ?, ?, ?)`
+    `INSERT INTO volumes (series_id, title, filename, volume_number, format) VALUES (?, ?, ?, ?, ?)`
   );
 
   let seriesCount = 0;
@@ -69,7 +79,10 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
 
       const volumeDir = path.join(mangaDir, folderName);
       const files = fs.readdirSync(volumeDir)
-        .filter(f => f.toLowerCase().endsWith('.pdf'))
+        .filter((f) => {
+          const ext = path.extname(f).toLowerCase();
+          return (SUPPORTED_EXTENSIONS as readonly string[]).includes(ext);
+        })
         .sort();
 
       for (let i = 0; i < files.length; i++) {
@@ -77,10 +90,13 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
         const existing = getVolume.get(series.id, filename);
         if (existing) continue;
 
-        const volumeNumber = extractVolumeNumber(filename) ?? (i + 1);
-        const title = path.basename(filename, '.pdf');
+        const format = formatFromFilename(filename);
+        if (!format) continue;
 
-        insertVolume.run(series.id, title, filename, volumeNumber);
+        const volumeNumber = extractVolumeNumber(filename) ?? (i + 1);
+        const title = path.basename(filename, path.extname(filename));
+
+        insertVolume.run(series.id, title, filename, volumeNumber, format);
         volumeCount++;
       }
     }

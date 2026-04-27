@@ -3,9 +3,9 @@ import fs from 'fs';
 import { getDb } from '../db';
 import { getMangaDir } from '../settings';
 import { insertPanelData, getPanelDataForPage } from '../panel-data';
-import { extractPageAsImage } from './extract-page';
 import { detectPanelsMl } from './ml';
 import { assignReadingOrder } from './reading-order';
+import { openPageSource, type Format, type PageSource } from '../page-source';
 
 export type JobStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error';
 
@@ -82,32 +82,33 @@ class JobManager {
 
     const db = getDb();
     const volume = db.prepare(
-      `SELECT v.id, v.page_count, v.title as volume_title, s.title as series_title, s.folder_name, v.filename
+      `SELECT v.id, v.page_count, v.title as volume_title, s.title as series_title, s.folder_name, v.filename, v.format
        FROM volumes v JOIN series s ON v.series_id = s.id
        WHERE v.id = ?`
     ).get(volumeId) as {
       id: number; page_count: number | null;
       volume_title: string; series_title: string;
-      folder_name: string; filename: string;
+      folder_name: string; filename: string; format: Format;
     } | undefined;
 
     if (!volume) {
       throw new Error('Volume not found');
     }
 
-    const pdfPath = path.join(getMangaDir(), volume.folder_name, volume.filename);
-    if (!fs.existsSync(pdfPath)) {
-      throw new Error('PDF file not found on disk');
+    const filePath = path.join(getMangaDir(), volume.folder_name, volume.filename);
+    if (!fs.existsSync(filePath)) {
+      throw new Error('Volume file not found on disk');
     }
 
-    // If page_count is missing, count pages from the PDF
+    // If page_count is missing, count pages from the volume via PageSource.
     let pageCount = volume.page_count;
     if (!pageCount || pageCount < 1) {
-      const mupdf = await import('mupdf');
-      const fileData = fs.readFileSync(pdfPath);
-      const doc = mupdf.Document.openDocument(fileData, 'application/pdf');
-      pageCount = doc.countPages();
-      // Update the DB so future lookups have it
+      const probe = openPageSource(filePath, volume.format);
+      try {
+        pageCount = await probe.countPages();
+      } finally {
+        await probe.close();
+      }
       db.prepare('UPDATE volumes SET page_count = ? WHERE id = ?').run(pageCount, volumeId);
     }
 
@@ -136,7 +137,7 @@ class JobManager {
     this.status = 'running';
 
     // Fire and forget — the loop runs in the background
-    this.processLoop(pdfPath).catch(err => {
+    this.processLoop(filePath, volume.format).catch(err => {
       console.error('Panel generation job fatal error:', err);
       this.error = err instanceof Error ? err.message : 'Unknown error';
       this.status = 'error';
@@ -185,68 +186,75 @@ class JobManager {
     }
   }
 
-  private async processLoop(pdfPath: string): Promise<void> {
-    for (let page = 1; page <= this.totalPages; page++) {
-      await this.waitIfPaused();
-      if (this.cancelled) break;
+  private async processLoop(filePath: string, format: Format): Promise<void> {
+    let source: PageSource | null = null;
+    try {
+      source = openPageSource(filePath, format);
 
-      this.currentPage = page;
+      for (let page = 1; page <= this.totalPages; page++) {
+        await this.waitIfPaused();
+        if (this.cancelled) break;
 
-      // Skip if already processed
-      const existing = getPanelDataForPage(this.volumeId, page);
-      if (existing) {
-        this.skippedPages++;
-        this.pages.push({
-          pageNumber: page,
-          panelCount: existing.panels.length,
-          pageType: existing.pageType,
-          processingTimeMs: existing.processingTimeMs ?? 0,
-        });
-        continue;
+        this.currentPage = page;
+
+        // Skip if already processed
+        const existing = getPanelDataForPage(this.volumeId, page);
+        if (existing) {
+          this.skippedPages++;
+          this.pages.push({
+            pageNumber: page,
+            panelCount: existing.panels.length,
+            pageType: existing.pageType,
+            processingTimeMs: existing.processingTimeMs ?? 0,
+          });
+          continue;
+        }
+
+        // Yield to the event loop so HTTP requests aren't starved during inference
+        await new Promise<void>(resolve => setImmediate(resolve));
+
+        try {
+          const start = Date.now();
+          const imageBuffer = await source.extractPage(page);
+          const detection = await detectPanelsMl(imageBuffer, this.confidenceThreshold);
+          const { panels, readingTree } = assignReadingOrder(detection.panels);
+          const processingTimeMs = Date.now() - start;
+
+          insertPanelData(
+            this.volumeId,
+            page,
+            panels,
+            readingTree,
+            detection.pageType,
+            processingTimeMs,
+            this.confidenceThreshold
+          );
+
+          this.processedPages++;
+          this.pages.push({
+            pageNumber: page,
+            panelCount: panels.length,
+            pageType: detection.pageType,
+            processingTimeMs,
+          });
+        } catch (err) {
+          console.error(`Panel detection failed for page ${page}:`, err);
+          this.processedPages++;
+          this.pages.push({
+            pageNumber: page,
+            panelCount: 0,
+            pageType: 'blank',
+            processingTimeMs: 0,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
       }
 
-      // Yield to the event loop so HTTP requests aren't starved during inference
-      await new Promise<void>(resolve => setImmediate(resolve));
-
-      try {
-        const start = Date.now();
-        const imageBuffer = await extractPageAsImage(pdfPath, page);
-        const detection = await detectPanelsMl(imageBuffer, this.confidenceThreshold);
-        const { panels, readingTree } = assignReadingOrder(detection.panels);
-        const processingTimeMs = Date.now() - start;
-
-        insertPanelData(
-          this.volumeId,
-          page,
-          panels,
-          readingTree,
-          detection.pageType,
-          processingTimeMs,
-          this.confidenceThreshold
-        );
-
-        this.processedPages++;
-        this.pages.push({
-          pageNumber: page,
-          panelCount: panels.length,
-          pageType: detection.pageType,
-          processingTimeMs,
-        });
-      } catch (err) {
-        console.error(`Panel detection failed for page ${page}:`, err);
-        this.processedPages++;
-        this.pages.push({
-          pageNumber: page,
-          panelCount: 0,
-          pageType: 'blank',
-          processingTimeMs: 0,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        });
+      if (!this.cancelled) {
+        this.status = 'completed';
       }
-    }
-
-    if (!this.cancelled) {
-      this.status = 'completed';
+    } finally {
+      if (source) await source.close();
     }
   }
 }

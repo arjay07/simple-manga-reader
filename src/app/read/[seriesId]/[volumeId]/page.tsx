@@ -9,6 +9,7 @@ interface VolumeRow {
   title: string;
   filename: string;
   volume_number: number | null;
+  format: 'pdf' | 'cbz';
   series_title: string;
   reading_direction: string | null;
   reader_settings: string | null;
@@ -75,6 +76,7 @@ export default async function ReaderPage({
       <MangaReader
         seriesId={seriesId}
         volumeId={volumeId}
+        format={volume.format}
         initialPage={initialPage}
         profileId={profileId}
         title={displayTitle}

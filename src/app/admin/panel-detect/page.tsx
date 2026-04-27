@@ -22,6 +22,7 @@ interface Volume {
   filename: string;
   volume_number: number | null;
   page_count: number | null;
+  format: 'pdf' | 'cbz';
 }
 
 interface SeriesDetail {

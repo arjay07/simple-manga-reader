@@ -51,6 +51,7 @@ export function getDb(): Database.Database {
       filename TEXT NOT NULL,
       volume_number INTEGER,
       page_count INTEGER,
+      format TEXT NOT NULL DEFAULT 'pdf',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -129,6 +130,13 @@ export function getDb(): Database.Database {
   // Migration: add is_child column if missing (existing DBs)
   if (!columns.some((c) => c.name === 'is_child')) {
     db.exec(`ALTER TABLE profiles ADD COLUMN is_child INTEGER DEFAULT 0`);
+  }
+
+  // Migration: add volumes.format column if missing (existing DBs).
+  // Existing rows pre-date CBZ support, so they backfill to 'pdf'.
+  const volumeColumns = db.pragma('table_info(volumes)') as { name: string }[];
+  if (!volumeColumns.some((c) => c.name === 'format')) {
+    db.exec(`ALTER TABLE volumes ADD COLUMN format TEXT NOT NULL DEFAULT 'pdf'`);
   }
 
   return db;

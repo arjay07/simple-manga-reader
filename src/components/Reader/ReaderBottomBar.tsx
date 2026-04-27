@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { DocumentSource } from './document-source';
 import PageScrubBar from './PageScrubBar';
 import PageSelectorDropdown from './PageSelectorDropdown';
 
@@ -10,7 +10,7 @@ interface ReaderBottomBarProps {
   currentPage: number;
   totalPages: number;
   spreadMode: boolean;
-  pdfDocument: PDFDocumentProxy | null;
+  pdfDocument: DocumentSource | null;
   onPageChange: (page: number) => void;
   isVertical: boolean;
   direction: 'ltr' | 'rtl';

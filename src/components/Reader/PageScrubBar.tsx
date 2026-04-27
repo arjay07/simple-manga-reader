@@ -1,12 +1,12 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { DocumentSource } from './document-source';
 
 interface PageScrubBarProps {
   currentPage: number;
   totalPages: number;
-  pdfDocument: PDFDocumentProxy | null;
+  pdfDocument: DocumentSource | null;
   onPageChange: (page: number) => void;
   direction: 'ltr' | 'rtl';
 }

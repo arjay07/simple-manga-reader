@@ -8,16 +8,17 @@ import { extractPageAsImage } from '@/lib/panel-detect/extract-page';
 import { detectPanelsMl } from '@/lib/panel-detect/ml';
 import { assignReadingOrder } from '@/lib/panel-detect/reading-order';
 import type { PanelDetectResponse } from '@/lib/panel-detect/types';
+import type { Format } from '@/lib/page-source';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { seriesId, volumeId, page, confidenceThreshold } = body;
 
-    // Look up the PDF file path
+    // Look up the volume file path and format
     const db = getDb();
     const row = db.prepare(
-      `SELECT s.folder_name, v.filename, v.page_count
+      `SELECT s.folder_name, v.filename, v.page_count, v.format
        FROM volumes v
        JOIN series s ON v.series_id = s.id
        WHERE v.series_id = ? AND v.id = ?`
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
       folder_name: string;
       filename: string;
       page_count: number | null;
+      format: Format;
     } | undefined;
 
     if (!row) {
@@ -34,10 +36,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pdfPath = path.join(getMangaDir(), row.folder_name, row.filename);
-    if (!fs.existsSync(pdfPath)) {
+    const filePath = path.join(getMangaDir(), row.folder_name, row.filename);
+    if (!fs.existsSync(filePath)) {
       return NextResponse.json(
-        { error: 'PDF file not found on disk' },
+        { error: 'Volume file not found on disk' },
         { status: 404 }
       );
     }
@@ -57,8 +59,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Extract page image
-    const imageBuffer = await extractPageAsImage(pdfPath, pageNum);
+    // Extract page image via the format-agnostic page source
+    const imageBuffer = await extractPageAsImage(filePath, row.format, pageNum);
 
     // Run ML detection
     const start = Date.now();

@@ -1,57 +1,52 @@
-import { execFileSync } from 'child_process';
-import { isPdftoppmAvailable } from '../pdf-utils';
-import fs from 'fs';
 import path from 'path';
+import { getDb } from '../db';
+import { getMangaDir } from '../settings';
+import { openPageSource, type Format } from '../page-source';
+
+interface VolumeFileInfo {
+  filePath: string;
+  format: Format;
+}
 
 /**
- * Extract a single page from a PDF as a PNG buffer.
- * Tries pdftoppm first (fast, high quality), falls back to mupdf (WASM, cross-platform).
- * @param pdfPath - absolute path to the PDF file
+ * Resolve a volume's on-disk path and format from its DB row.
+ * Throws if the volume is missing or the file does not exist on disk.
+ */
+export function resolveVolumeFile(volumeId: number): VolumeFileInfo {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT s.folder_name, v.filename, v.format
+     FROM volumes v JOIN series s ON v.series_id = s.id
+     WHERE v.id = ?`
+  ).get(volumeId) as { folder_name: string; filename: string; format: Format } | undefined;
+
+  if (!row) {
+    throw new Error(`Volume ${volumeId} not found`);
+  }
+
+  const filePath = path.join(getMangaDir(), row.folder_name, row.filename);
+  return { filePath, format: row.format };
+}
+
+/**
+ * Extract a single page as image bytes (PNG for PDFs, native bytes for CBZ).
+ * Routes through the format-agnostic PageSource abstraction.
+ *
+ * @param filePath - absolute path to the volume file (PDF or CBZ)
+ * @param format - the volume's format
  * @param pageNumber - 1-based page number
- * @param dpi - resolution (default 300 for good detection quality)
- * @returns PNG image as a Buffer
+ * @param dpi - resolution for PDF rendering (ignored for CBZ); default 300
  */
 export async function extractPageAsImage(
-  pdfPath: string,
+  filePath: string,
+  format: Format,
   pageNumber: number,
   dpi: number = 300
 ): Promise<Buffer> {
-  if (isPdftoppmAvailable()) {
-    const result = execFileSync('pdftoppm', [
-      '-png',
-      '-f', String(pageNumber),
-      '-l', String(pageNumber),
-      '-r', String(dpi),
-      '-singlefile',
-      pdfPath,
-    ], {
-      maxBuffer: 50 * 1024 * 1024,
-    });
-    return Buffer.from(result);
+  const source = openPageSource(filePath, format);
+  try {
+    return await source.extractPage(pageNumber, { dpi });
+  } finally {
+    await source.close();
   }
-
-  // Fallback: mupdf (WASM-based, works everywhere)
-  return extractWithMupdf(pdfPath, pageNumber, dpi);
-}
-
-async function extractWithMupdf(
-  pdfPath: string,
-  pageNumber: number,
-  dpi: number
-): Promise<Buffer> {
-  const mupdf = await import('mupdf');
-
-  const fileData = fs.readFileSync(pdfPath);
-  const doc = mupdf.Document.openDocument(fileData, 'application/pdf');
-  const page = doc.loadPage(pageNumber - 1); // mupdf uses 0-based index
-
-  // Calculate transform matrix from DPI (PDF default is 72 DPI)
-  const scale = dpi / 72;
-  const matrix = mupdf.Matrix.scale(scale, scale);
-
-  // Render to pixmap
-  const pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-  const pngBuffer = pixmap.asPNG();
-
-  return Buffer.from(pngBuffer);
 }
