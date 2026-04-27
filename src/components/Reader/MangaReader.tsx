@@ -175,6 +175,10 @@ export default function MangaReader({
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('focusMode') === 'true';
   });
+  const [debugMode, setDebugMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('debugMode') === 'true';
+  });
   const focusModeRef = useRef(focusMode);
   const smartPanelZoomRef = useRef(false);
   const hasPanelDataRef = useRef(false);
@@ -460,6 +464,11 @@ export default function MangaReader({
     localStorage.setItem('focusMode', String(value));
     writeLetterbox({ withTransition: false });
   }, [writeLetterbox]);
+
+  const handleDebugModeChange = useCallback((value: boolean) => {
+    setDebugMode(value);
+    localStorage.setItem('debugMode', String(value));
+  }, []);
 
   // Two-phase panel data fetch when smart panel zoom is enabled
   useEffect(() => {
@@ -3046,8 +3055,55 @@ export default function MangaReader({
             </div>
             {/* Current slot */}
             <div className="w-screen h-full flex items-center justify-center overflow-hidden">
-              <div ref={zoomWrapperRef} style={{ transformOrigin: '0 0' }}>
+              <div ref={zoomWrapperRef} style={{ transformOrigin: '0 0', position: 'relative' }}>
                 <canvas ref={canvasRef} className="max-h-full max-w-full" />
+                {debugMode && (() => {
+                  const pageData = panelDataMap.get(currentPage);
+                  if (!pageData || pageData.pageType !== 'panels') return null;
+                  return (
+                    <div className="absolute inset-0 pointer-events-none">
+                      {pageData.panels.map((panel) => {
+                        const color =
+                          panel.confidence >= 0.7 ? '#22c55e' :
+                          panel.confidence >= 0.4 ? '#eab308' : '#ef4444';
+                        return (
+                          <div
+                            key={panel.id}
+                            style={{
+                              position: 'absolute',
+                              left: `${panel.x * 100}%`,
+                              top: `${panel.y * 100}%`,
+                              width: `${panel.width * 100}%`,
+                              height: `${panel.height * 100}%`,
+                              outline: `3px solid ${color}`,
+                              outlineOffset: '-1px',
+                              backgroundColor: `${color}26`,
+                              boxSizing: 'border-box',
+                            }}
+                          >
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                backgroundColor: color,
+                                color: '#000',
+                                fontFamily: 'sans-serif',
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                padding: '2px 6px',
+                                lineHeight: 1.2,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {panel.readingOrder} ({panel.confidence.toFixed(2)})
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             {/* Next slot */}
@@ -3173,6 +3229,8 @@ export default function MangaReader({
         hasPanelData={hasPanelData}
         focusMode={focusMode}
         onFocusModeChange={handleFocusModeChange}
+        debugMode={debugMode}
+        onDebugModeChange={handleDebugModeChange}
       />
     </div>
   );
