@@ -256,6 +256,11 @@ export default function MangaReader({
           slot: 'prev' | 'next';
           stripTranslateX: number;
           progress: number;
+          // When set, the bar geometry transitions over this duration with
+          // an ease-out curve — used to phase-lock the bars to the strip's
+          // own transition during a cross-page slide. Unset means the bars
+          // are written without a transition (per-frame drag previews).
+          crossPageTransitionMs?: number;
         };
   } = {}) => {
     const group = letterboxGroupRef.current;
@@ -384,9 +389,14 @@ export default function MangaReader({
     const T = Math.round(Math.max(0, Math.min(vH, rectTop)));
     const B = Math.round(Math.max(0, Math.min(vH, rectBottom)));
 
-    const barTransition = opts.withTransition
-      ? 'top 200ms ease-out, left 200ms ease-out, width 200ms ease-out, height 200ms ease-out'
-      : 'none';
+    const crossPageMs = opts.dragInterp?.kind === 'cross-page'
+      ? opts.dragInterp.crossPageTransitionMs
+      : undefined;
+    const barTransition = crossPageMs !== undefined
+      ? `top ${crossPageMs}ms ease-out, left ${crossPageMs}ms ease-out, width ${crossPageMs}ms ease-out, height ${crossPageMs}ms ease-out`
+      : opts.withTransition
+        ? 'top 200ms ease-out, left 200ms ease-out, width 200ms ease-out, height 200ms ease-out'
+        : 'none';
 
     // Skip DOM writes if geometry is identical to the last frame. Pinch-move
     // and resize frequently call this with an unchanged rect — the browser
@@ -998,6 +1008,18 @@ export default function MangaReader({
     writeLetterbox({ withTransition });
   }, [writeLetterbox]);
 
+  // Snapshot the wrapper's current transform from live refs. Used as the
+  // `fromTransform` for cross-page drag/morph payloads so the bar morph
+  // starts from any pinch the user did mid-gesture, not the stale snapshot
+  // captured at touch-start.
+  const liveTransform = useCallback((): PanelTransform => ({
+    ox: zoomOriginRef.current.x,
+    oy: zoomOriginRef.current.y,
+    scale: zoomScaleRef.current,
+    panX: panRef.current.x,
+    panY: panRef.current.y,
+  }), []);
+
   // Apply an interpolated transform directly to the wrapper (no ref updates).
   const applyInterpolatedTransform = useCallback((
     t: PanelTransform,
@@ -1514,10 +1536,19 @@ export default function MangaReader({
     const renderScale = baseScale * dpr * hiResScale;
     const hiResViewport = page.getViewport({ scale: renderScale });
 
-    targetCanvas.width = hiResViewport.width;
-    targetCanvas.height = hiResViewport.height;
-    targetCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
-    targetCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
+    // Skip the canvas-dim assignment when dims are already correct.
+    // canvas.width = N ALWAYS clears the buffer (even if N is unchanged), and
+    // when this prerender runs in parallel with a slide animation that's
+    // already revealing the slot, a cleared buffer would flash blank for a
+    // frame. Preserving the existing pixels lets page.render() draw over
+    // them in-place — the user sees the existing (cached) content gradually
+    // sharpen rather than blank-then-render.
+    if (targetCanvas.width !== hiResViewport.width) {
+      targetCanvas.width = hiResViewport.width;
+      targetCanvas.height = hiResViewport.height;
+      targetCanvas.style.width = `${hiResViewport.width / (dpr * hiResScale)}px`;
+      targetCanvas.style.height = `${hiResViewport.height / (dpr * hiResScale)}px`;
+    }
 
     if (targetRenderTaskRef.current) {
       targetRenderTaskRef.current.cancel();
@@ -1597,6 +1628,7 @@ export default function MangaReader({
     targetPanelIndex: number;
     resolvedStopIndex: number;
     transform: PanelTransform;
+    panel: Panel;
     slot: 'prev' | 'next';
     readingDir: 'forward' | 'back';
   }) => {
@@ -1604,10 +1636,6 @@ export default function MangaReader({
     const targetCanvas = opts.slot === 'prev' ? prevCanvasRef.current : nextCanvasRef.current;
     const targetWrapper = opts.slot === 'prev' ? prevZoomWrapperRef.current : nextZoomWrapperRef.current;
     if (!strip) return;
-
-    const { ox, oy, scale: fZoom, panX, panY } = opts.transform;
-    const tx = ox * (1 - fZoom) + panX;
-    const ty = oy * (1 - fZoom) + panY;
 
     // Capture the OLD page's state before we overwrite anything. We'll use
     // it below to seed the opposite slot so an immediate yo-yo back to where
@@ -1661,7 +1689,23 @@ export default function MangaReader({
       destCanvas.style.height = targetCanvas.style.height;
       const ctx = destCanvas.getContext('2d');
       if (ctx) ctx.drawImage(targetCanvas, 0, 0);
+    }
 
+    // Recompute the landing transform against the just-swapped destCanvas
+    // dims rather than trusting opts.transform. opts.transform was computed
+    // by prerenderNeighbor against the target slot's canvas at prerender
+    // time, but the wrapper's display dims (and the panel-stop math) are
+    // anchored to canvasRef — so recomputing here against the live canvas
+    // guarantees the cross-page landing matches the within-page formula
+    // (zoomToPanel → computePanelTransform), which is the same one the
+    // user reaches by going back. Without this, a stale slot-canvas dim
+    // could land the user at a top-left-of-page region or the wrong stop.
+    const recomputed = computePanelTransform(opts.panel, opts.resolvedStopIndex);
+    const finalTransform = recomputed ?? opts.transform;
+    const { ox, oy, scale: fZoom, panX, panY } = finalTransform;
+    const tx = ox * (1 - fZoom) + panX;
+    const ty = oy * (1 - fZoom) + panY;
+    if (destWrapper) {
       destWrapper.style.transition = 'none';
       destWrapper.style.transformOrigin = '0 0';
       destWrapper.style.transform = `translate(${tx}px, ${ty}px) scale(${fZoom})`;
@@ -1712,7 +1756,7 @@ export default function MangaReader({
       letterboxFadingRef.current = false;
       applyZoomTransform(false);
     });
-  }, [goNextPage, goPrevPage, applyZoomTransform]);
+  }, [goNextPage, goPrevPage, applyZoomTransform, computePanelTransform]);
 
   // Shared helper: pre-render a page zoomed to a specific panel on a carousel slot,
   // then slide the strip to reveal it. Used by advancePanel and retreatPanel for
@@ -1724,6 +1768,7 @@ export default function MangaReader({
     targetStopIndex: number,
     readingDir: 'forward' | 'back',
   ): boolean => {
+    const SLIDE_MS = 250;
     const strip = stripRef.current;
     const container = containerRef.current;
     const { slot, targetCanvas, targetWrapper, slideTarget } = pickSlot(readingDir);
@@ -1750,16 +1795,19 @@ export default function MangaReader({
     };
 
     // Suppress writeLetterbox's default panel-rect path during the slide —
-    // the cross-page morph branch in stepMorph below bypasses this gate.
+    // the cross-page morph branch below bypasses this gate.
     letterboxFadingRef.current = true;
 
-    let cancelMorph = false;
     const vW = window.innerWidth;
-    const startStripX = -vW;
     const slotEndX = slot === 'prev' ? 0 : -2 * vW;
 
-    const startSlide = (resTransform: PanelTransform, resPanelIndex: number, resStopIndex: number) => {
-      strip.style.transition = 'transform 250ms ease-out';
+    const startSlide = (
+      resTransform: PanelTransform,
+      resPanelIndex: number,
+      resStopIndex: number,
+      refreshPromise: Promise<{ transform: PanelTransform; panelIndex: number; resolvedStopIndex: number } | null> | null = null,
+    ) => {
+      strip.style.transition = `transform ${SLIDE_MS}ms ease-out`;
       strip.style.transform = slideTarget;
 
       const canMorph = fromPanel != null
@@ -1768,39 +1816,77 @@ export default function MangaReader({
         && hasPanelDataRef.current
         && isZoomedRef.current;
       if (canMorph) {
-        const startTime = performance.now();
-        const duration = 250;
-        const stepMorph = () => {
-          if (cancelMorph) return;
-          const t = Math.min(1, (performance.now() - startTime) / duration);
-          // ease-out cubic, matching the strip's CSS transition curve
-          const eased = 1 - Math.pow(1 - t, 3);
-          const stripTranslateX = startStripX + (slotEndX - startStripX) * eased;
-          writeLetterbox({
-            dragInterp: {
-              kind: 'cross-page',
-              fromPanel: fromPanel as Panel,
-              fromTransform,
-              toPanel: targetPanel,
-              toTransform: resTransform,
-              slot,
-              stripTranslateX,
-              progress: eased,
-            },
-          });
-          if (t < 1) requestAnimationFrame(stepMorph);
-        };
-        requestAnimationFrame(stepMorph);
+        // Anchor the bars at the from-rect with no transition, force a
+        // synchronous layout flush so the browser commits that style as a
+        // distinct state, then write the destination rect with a CSS
+        // transition matching the strip's duration and ease-out curve. The
+        // browser interpolates the four bar geometry properties over
+        // SLIDE_MS — phase-locked to the strip because both use the same
+        // curve. The forced reflow is required: without it, two writes in
+        // the same JS tick coalesce into one style change event and the
+        // transition would start from whatever the bars were at before the
+        // slide (possibly mid-transition from a prior write), not from the
+        // anchored from-rect.
+        writeLetterbox({
+          dragInterp: {
+            kind: 'cross-page',
+            fromPanel: fromPanel as Panel,
+            fromTransform,
+            toPanel: targetPanel,
+            toTransform: resTransform,
+            slot,
+            stripTranslateX: -vW,
+            progress: 0,
+          },
+        });
+        const group = letterboxGroupRef.current;
+        if (group) void group.offsetHeight;
+        writeLetterbox({
+          dragInterp: {
+            kind: 'cross-page',
+            fromPanel: fromPanel as Panel,
+            fromTransform,
+            toPanel: targetPanel,
+            toTransform: resTransform,
+            slot,
+            stripTranslateX: slotEndX,
+            progress: 1,
+            crossPageTransitionMs: SLIDE_MS,
+          },
+        });
       }
 
-      const onSlideEnd = () => {
+      const onSlideEnd = async () => {
         strip.removeEventListener('transitionend', onSlideEnd);
-        cancelMorph = true;
+        // If a fresh re-render was kicked off in parallel with the slide,
+        // wait for it before commit so the canvas content the commit copies
+        // into the current slot is the up-to-date hi-res render of the
+        // target page (not a stale cached render that may have been
+        // overwritten by the default page-render effect or hold a
+        // different page's content). Render typically completes well
+        // before the 250ms slide ends, so this is a no-op wait in the
+        // common case.
+        let finalTransform = resTransform;
+        let finalPanelIndex = resPanelIndex;
+        let finalStopIndex = resStopIndex;
+        if (refreshPromise) {
+          try {
+            const fresh = await refreshPromise;
+            if (fresh) {
+              finalTransform = fresh.transform;
+              finalPanelIndex = fresh.panelIndex;
+              finalStopIndex = fresh.resolvedStopIndex;
+            }
+          } catch {
+            /* refresh cancelled, fall back to cached values */
+          }
+        }
         commitNeighborSlide({
           targetPageNum,
-          targetPanelIndex: resPanelIndex,
-          resolvedStopIndex: resStopIndex,
-          transform: resTransform,
+          targetPanelIndex: finalPanelIndex,
+          resolvedStopIndex: finalStopIndex,
+          transform: finalTransform,
+          panel: targetPanel,
           slot,
           readingDir,
         });
@@ -1819,7 +1905,15 @@ export default function MangaReader({
       && cached.slot === slot;
 
     if (cacheValid && cached) {
-      startSlide(cached.transform, cached.panelIndex, cached.stopIndex);
+      // Cache hit: start the slide IMMEDIATELY using the cached transform so
+      // there's no input-to-animation latency. Concurrently kick off a fresh
+      // prerenderNeighbor — its in-place render (no canvas-clear since dims
+      // match) refreshes the slot canvas during the slide animation, so by
+      // the time the strip transition ends and commit copies the slot to
+      // the current canvas, the content is guaranteed to be the correct
+      // page at hi-res. onSlideEnd awaits this promise before commit.
+      const refreshPromise = prerenderNeighbor(targetPageNum, targetPanel, targetPanelIndex, targetStopIndex, slot);
+      startSlide(cached.transform, cached.panelIndex, cached.stopIndex, refreshPromise);
     } else {
       (async () => {
         const result = await prerenderNeighbor(targetPageNum, targetPanel, targetPanelIndex, targetStopIndex, slot);
@@ -2388,7 +2482,7 @@ export default function MangaReader({
               dragInterp: {
                 kind: 'cross-page',
                 fromPanel: drag.startPanel,
-                fromTransform: drag.start,
+                fromTransform: liveTransform(),
                 toPanel: crossTarget.panel,
                 toTransform: crossTarget.transform,
                 slot: crossTarget.slot,
@@ -2444,7 +2538,7 @@ export default function MangaReader({
 
     dragOffsetRef.current = dx;
     setStripTransform(dx, false);
-  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, applyInterpolatedTransform, smartPanelZoom, hasPanelData, effectiveDirection, getPinchGeometry, writeLetterbox]);
+  }, [isVertical, spreadMode, setStripTransform, computePanBounds, applyZoomTransform, applyInterpolatedTransform, smartPanelZoom, hasPanelData, effectiveDirection, getPinchGeometry, writeLetterbox, liveTransform]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -2655,6 +2749,25 @@ export default function MangaReader({
               const slotTargetOffset = crossTarget.slot === 'prev' ? '100vw' : '-100vw';
               strip.style.transition = `transform ${duration}ms ease-out`;
               strip.style.transform = `translateX(calc(-100vw + ${slotTargetOffset}))`;
+              // Morph the bars from their current mid-drag rect to the
+              // to-rect over the same duration and curve as the strip's
+              // commit transition. The bars are already at the mid-drag
+              // rect (last touchmove wrote that with transition='none'),
+              // so a single write with crossPageTransitionMs triggers a
+              // CSS transition from the visible state to the to-rect.
+              writeLetterbox({
+                dragInterp: {
+                  kind: 'cross-page',
+                  fromPanel: drag.startPanel,
+                  fromTransform: liveTransform(),
+                  toPanel: crossTarget.panel,
+                  toTransform: crossTarget.transform,
+                  slot: crossTarget.slot,
+                  stripTranslateX: slotTargetX,
+                  progress: 1,
+                  crossPageTransitionMs: duration,
+                },
+              });
               // Cancel any prior leaked listener before registering a new one.
               if (activeCommitListenerRef.current) {
                 strip.removeEventListener('transitionend', activeCommitListenerRef.current);
@@ -2670,6 +2783,7 @@ export default function MangaReader({
                   targetPanelIndex: crossTarget.panelIndex,
                   resolvedStopIndex: crossTarget.stopIndex,
                   transform: crossTarget.transform,
+                  panel: crossTarget.panel,
                   slot: crossTarget.slot,
                   readingDir: crossTarget.readingDir,
                 });
@@ -2679,7 +2793,12 @@ export default function MangaReader({
               return;
             }
 
-            // Cancel: spring strip back to centered, letterbox lerps back to from-rect.
+            // Cancel: spring strip back to centered, letterbox transitions
+            // back to from-rect over the same duration as the strip's
+            // spring-back. A single CSS-driven write replaces the prior
+            // per-frame stepBack rAF loop — the bars are already at the
+            // mid-drag rect (transition='none') so changing transition to
+            // ${duration}ms and rect to from-rect fires a clean transition.
             const duration = Math.max(80, Math.round(250 * crossProgress));
             if (activeCommitListenerRef.current) {
               strip.removeEventListener('transitionend', activeCommitListenerRef.current);
@@ -2687,37 +2806,19 @@ export default function MangaReader({
             }
             strip.style.transition = `transform ${duration}ms ease-out`;
             strip.style.transform = `translateX(calc(-100vw + 0px))`;
-            // Drive letterbox back to the from-rect via a sequence of rAFs
-            // matching the strip transition. Cheaper than a full rAF loop:
-            // CSS transitions on the bar rects don't apply (geometry is set
-            // explicitly each frame), so we step it manually.
-            const startTime = performance.now();
-            const stepBack = () => {
-              const now = performance.now();
-              const t = Math.min(1, (now - startTime) / duration);
-              // ease-out cubic
-              const eased = 1 - Math.pow(1 - t, 3);
-              const liveProgress = crossProgress * (1 - eased);
-              const liveStripX = -vW + (slotTargetX - (-vW)) * liveProgress;
-              writeLetterbox({
-                dragInterp: {
-                  kind: 'cross-page',
-                  fromPanel: drag.startPanel,
-                  fromTransform: drag.start,
-                  toPanel: crossTarget.panel,
-                  toTransform: crossTarget.transform,
-                  slot: crossTarget.slot,
-                  stripTranslateX: liveStripX,
-                  progress: liveProgress,
-                },
-              });
-              if (t < 1) requestAnimationFrame(stepBack);
-              else {
-                // Settle on the from-rect with no morph.
-                writeLetterbox({});
-              }
-            };
-            requestAnimationFrame(stepBack);
+            writeLetterbox({
+              dragInterp: {
+                kind: 'cross-page',
+                fromPanel: drag.startPanel,
+                fromTransform: liveTransform(),
+                toPanel: crossTarget.panel,
+                toTransform: crossTarget.transform,
+                slot: crossTarget.slot,
+                stripTranslateX: -vW,
+                progress: 0,
+                crossPageTransitionMs: duration,
+              },
+            });
             return;
           }
         }
@@ -2770,7 +2871,7 @@ export default function MangaReader({
      navigateReading, springBack, applyZoomTransform,
      detectDoubleTap, enterZoom, exitZoom, smartPanelZoom, hasPanelData,
      hitTestPanel, zoomToPanel, panelDataMap, currentPage,
-     computePanBounds, scheduleHiResRerender, commitNeighborSlide, writeLetterbox]
+     computePanBounds, scheduleHiResRerender, commitNeighborSlide, writeLetterbox, liveTransform]
   );
 
   // Legacy swipe for spread mode (tap-based, no drag)
@@ -2818,14 +2919,15 @@ export default function MangaReader({
     [settings.tapToTurn, isVertical, effectiveDirection, settingsModalOpen, smartPanelZoom, hasPanelData, navigateReading]
   );
 
-  // Scroll wheel handler
+  // Scroll wheel handler. Attached via addEventListener with passive: false
+  // (in the effect below) so preventDefault actually suppresses page scroll —
+  // React's onWheel prop is passive by default and would log a warning.
   const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelEvent) => {
       if (isVertical) return;
       e.preventDefault();
       if (isAnimatingRef.current) return;
 
-      // Throttle: scroll wheel fires many events rapidly
       const now = Date.now();
       if (now - lastWheelNavRef.current < 300) return;
       lastWheelNavRef.current = now;
@@ -2834,6 +2936,14 @@ export default function MangaReader({
     },
     [isVertical, navigateReading]
   );
+
+  useEffect(() => {
+    if (isVertical) return;
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [isVertical, handleWheel]);
 
   // Settings change handler with debounced save
   const handleSettingsChange = useCallback(
@@ -2914,7 +3024,6 @@ export default function MangaReader({
       onTouchEnd={handleTouchEnd}
       onClick={handleContainerClick}
       onMouseMove={handleMouseMove}
-      onWheel={!isVertical ? handleWheel : undefined}
       tabIndex={0}
     >
       {/* Reading area */}
