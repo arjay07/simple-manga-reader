@@ -4,6 +4,8 @@ The reader currently only recognises PDF volumes — the scanner filters for `.p
 
 ## What Changes
 
+- **Folder layout** (made explicit, not a change)
+  - Volumes continue to live as `MANGA_DIR/<Series>/<Volume>.{pdf|cbz}`. Flat per series, one volume per file. CBZ files drop in alongside PDFs in the same series directory; mixed-format series are supported. Image-folder volumes (un-archived directories of images) are explicitly out of scope.
 - **Scanner / DB**
   - Scanner accepts `.cbz` files alongside `.pdf` (case-insensitive).
   - `extractVolumeNumber()` no longer anchors regexes to `.pdf`; works on any extension.

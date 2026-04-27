@@ -26,7 +26,7 @@
 - [ ] 4.2 Update `src/lib/panel-detect/job-manager.ts` so its page-count probe (currently hard-coded to mupdf) goes through `openPageSource(filePath, format).countPages()`
 - [ ] 4.3 Update `src/app/api/panel-detect/page-image/route.ts` to fetch `format` from the DB row and pass it through to `extractPageAsImage`
 - [ ] 4.4 Update `src/app/api/manga/[seriesId]/[volumeId]/thumbnail/route.ts` so it produces a thumbnail for both formats; for CBZ, extract the first image entry and run it through `sharp` to produce the cached JPEG
-- [ ] 4.5 Move `getVolumeThumbnailPath()` in `src/lib/pdf-utils.ts` to be format-agnostic — strip whichever extension is present so the cache key works for `.pdf` and `.cbz`
+- [ ] 4.5 Update `getVolumeThumbnailPath()` in `src/lib/pdf-utils.ts` so the cache key is collision-free across formats: keep the extension as part of the key (e.g., replace the dot with `_` rather than stripping the extension), so `Vol01.pdf` and `Vol01.cbz` resolve to different cached thumbnails. Note this changes existing PDF cache keys; a one-time thumbnail re-generation on next access is acceptable.
 - [ ] 4.6 Update `src/app/api/manga/[seriesId]/[volumeId]/pdf/route.ts` to read the volume's `format` and set `Content-Type` to `application/pdf` or `application/vnd.comicbook+zip` accordingly; range-request handling unchanged
 
 ## 5. API surface

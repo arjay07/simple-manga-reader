@@ -1,5 +1,31 @@
 ## ADDED Requirements
 
+### Requirement: Manga directory layout is flat per series
+Volume files SHALL live directly inside their series directory under `MANGA_DIR`, one volume per file, with no nested per-volume sub-directories. The structure SHALL be `MANGA_DIR/<Series>/<Volume>.{pdf|cbz}`.
+
+#### Scenario: CBZ files sit alongside PDF files in a series
+- **WHEN** a series directory contains a mix of `.pdf` and `.cbz` files at its top level
+- **THEN** each file SHALL be registered as a separate volume of the same series
+
+#### Scenario: Nested volume directories are not volumes
+- **WHEN** a series directory contains a sub-directory (other than the hidden `.covers/` cache) holding image files
+- **THEN** the scanner SHALL NOT register the sub-directory as a volume; image-folder volumes are out of scope
+
+#### Scenario: Hidden caches preserved
+- **WHEN** a series directory contains a `.covers/` sub-directory
+- **THEN** the scanner SHALL ignore it (it is the existing thumbnail cache and not a volume)
+
+### Requirement: Volume thumbnail cache key is collision-free across formats
+Cached volume thumbnails SHALL be keyed in a way that two volumes in the same series with the same stem but different formats (e.g., `Vol01.pdf` and `Vol01.cbz`) resolve to distinct cache files.
+
+#### Scenario: Same stem, different formats
+- **WHEN** a series contains both `Vol01.pdf` and `Vol01.cbz`
+- **THEN** their generated thumbnail paths under `.covers/` SHALL be distinct (the file extension SHALL be encoded into the cache key, not stripped)
+
+#### Scenario: Existing PDF cache keys
+- **WHEN** computing the thumbnail path for an existing PDF volume after this change
+- **THEN** the resulting filename MAY differ from before (a one-time re-generation is acceptable; cached thumbnails are derived data)
+
 ### Requirement: Recognised volume formats
 The system SHALL recognise volumes in two formats: PDF (`.pdf`) and CBZ (`.cbz`, a ZIP archive of per-page raster images). File-format recognition SHALL be case-insensitive on the file extension.
 
