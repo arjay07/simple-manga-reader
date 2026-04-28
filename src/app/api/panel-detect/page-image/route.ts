@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   if (!seriesId || !volumeId || !page) {
     return NextResponse.json(
       { error: 'Missing required query parameters: seriesId, volumeId, page' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -25,16 +25,20 @@ export async function GET(req: NextRequest) {
   }
 
   const db = getDb();
-  const row = db.prepare(
-    `SELECT s.folder_name, v.filename, v.page_count, v.format
+  const row = db
+    .prepare(
+      `SELECT s.folder_name, v.filename, v.page_count, v.format
      FROM volumes v JOIN series s ON v.series_id = s.id
-     WHERE v.series_id = ? AND v.id = ?`
-  ).get(seriesId, volumeId) as {
-    folder_name: string;
-    filename: string;
-    page_count: number | null;
-    format: Format;
-  } | undefined;
+     WHERE v.series_id = ? AND v.id = ?`,
+    )
+    .get(seriesId, volumeId) as
+    | {
+        folder_name: string;
+        filename: string;
+        page_count: number | null;
+        format: Format;
+      }
+    | undefined;
 
   if (!row) {
     return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
@@ -43,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (row.page_count && pageNum > row.page_count) {
     return NextResponse.json(
       { error: `Page ${pageNum} exceeds total pages (${row.page_count})` },
-      { status: 400 }
+      { status: 400 },
     );
   }
 

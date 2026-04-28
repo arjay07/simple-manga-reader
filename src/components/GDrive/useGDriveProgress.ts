@@ -51,7 +51,7 @@ export function useGDriveProgress(jobId: string | null) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    setState(prev => ({ ...prev, connected: false }));
+    setState((prev) => ({ ...prev, connected: false }));
   }, []);
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export function useGDriveProgress(jobId: string | null) {
 
     es.addEventListener('state', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         connected: true,
         jobId,
@@ -81,7 +81,7 @@ export function useGDriveProgress(jobId: string | null) {
 
     es.addEventListener('file-list', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         files: data.files.map((f: { name: string; size: number; status: FileStatus }) => ({
           ...f,
@@ -92,25 +92,30 @@ export function useGDriveProgress(jobId: string | null) {
 
     es.addEventListener('file-progress', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         speed: data.speed,
-        files: prev.files.map(f =>
+        files: prev.files.map((f) =>
           f.name === data.file
-            ? { ...f, status: 'downloading' as const, bytesDownloaded: data.bytesDownloaded, size: data.totalBytes || f.size }
-            : f
+            ? {
+                ...f,
+                status: 'downloading' as const,
+                bytesDownloaded: data.bytesDownloaded,
+                size: data.totalBytes || f.size,
+              }
+            : f,
         ),
       }));
     });
 
     es.addEventListener('file-complete', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        files: prev.files.map(f =>
+        files: prev.files.map((f) =>
           f.name === data.file
             ? { ...f, status: 'complete' as const, bytesDownloaded: data.size, size: data.size }
-            : f
+            : f,
         ),
       }));
     });
@@ -118,12 +123,10 @@ export function useGDriveProgress(jobId: string | null) {
     es.addEventListener('file-error', (e) => {
       const data = JSON.parse(e.data);
       if (!data.retrying) {
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
-          files: prev.files.map(f =>
-            f.name === data.file
-              ? { ...f, status: 'error' as const, error: data.message }
-              : f
+          files: prev.files.map((f) =>
+            f.name === data.file ? { ...f, status: 'error' as const, error: data.message } : f,
           ),
         }));
       }
@@ -131,31 +134,31 @@ export function useGDriveProgress(jobId: string | null) {
 
     es.addEventListener('file-skipped', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        files: prev.files.map(f =>
+        files: prev.files.map((f) =>
           f.name === data.file
             ? { ...f, status: 'skipped' as const, bytesDownloaded: data.size, size: data.size }
-            : f
+            : f,
         ),
       }));
     });
 
     es.addEventListener('paused', () => {
-      setState(prev => ({ ...prev, status: 'paused', speed: 0 }));
+      setState((prev) => ({ ...prev, status: 'paused', speed: 0 }));
     });
 
     es.addEventListener('resumed', () => {
-      setState(prev => ({ ...prev, status: 'downloading' }));
+      setState((prev) => ({ ...prev, status: 'downloading' }));
     });
 
     es.addEventListener('cancelled', () => {
-      setState(prev => ({ ...prev, status: 'cancelled', speed: 0 }));
+      setState((prev) => ({ ...prev, status: 'cancelled', speed: 0 }));
     });
 
     es.addEventListener('done', (e) => {
       const data = JSON.parse(e.data);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         status: 'done',
         speed: 0,
@@ -169,13 +172,13 @@ export function useGDriveProgress(jobId: string | null) {
       // SSE connection error vs server-sent error event
       if (e instanceof MessageEvent) {
         const data = JSON.parse(e.data);
-        setState(prev => ({ ...prev, status: 'error', speed: 0 }));
+        setState((prev) => ({ ...prev, status: 'error', speed: 0 }));
         console.error('GDrive download error:', data.message);
       }
     });
 
     es.onerror = () => {
-      setState(prev => ({ ...prev, connected: false }));
+      setState((prev) => ({ ...prev, connected: false }));
     };
 
     return () => {

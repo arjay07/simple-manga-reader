@@ -16,26 +16,32 @@ interface VolumeRow {
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ seriesId: string }> }
+  { params }: { params: Promise<{ seriesId: string }> },
 ) {
   try {
     const { seriesId } = await params;
     const db = getDb();
 
-    const series = db.prepare('SELECT id, folder_name FROM series WHERE id = ?').get(Number(seriesId)) as { id: number; folder_name: string } | undefined;
+    const series = db
+      .prepare('SELECT id, folder_name FROM series WHERE id = ?')
+      .get(Number(seriesId)) as { id: number; folder_name: string } | undefined;
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
     // Find the first volume (lowest volume_number)
-    const volume = db.prepare(`
+    const volume = db
+      .prepare(
+        `
       SELECT v.id, v.filename, v.format, s.folder_name
       FROM volumes v
       JOIN series s ON s.id = v.series_id
       WHERE v.series_id = ?
       ORDER BY v.volume_number ASC
       LIMIT 1
-    `).get(Number(seriesId)) as VolumeRow | undefined;
+    `,
+      )
+      .get(Number(seriesId)) as VolumeRow | undefined;
 
     if (!volume) {
       return NextResponse.json({ error: 'No volumes found for this series' }, { status: 400 });
@@ -62,9 +68,6 @@ export async function POST(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to generate cover:', error);
-    return NextResponse.json(
-      { error: 'Failed to generate cover' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate cover' }, { status: 500 });
   }
 }

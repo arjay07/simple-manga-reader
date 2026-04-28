@@ -1,49 +1,26 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import { useProfile } from '@/components/ProfileProvider';
+import { useFetch } from '@/hooks/useFetch';
 import { VolumeThumbnail } from './VolumeThumbnail';
 import { apiUrl } from '@/lib/basePath';
-
-interface ProgressEntry {
-  volume_id: number;
-  current_page: number;
-  page_count: number | null;
-  volume_title: string;
-  volume_number: number;
-  series_id: number;
-  series_title: string;
-  updated_at: string;
-}
+import type { ProgressEntryWithSeries as ProgressEntry } from '@/types';
 
 export function ContinueReading() {
   const { profile } = useProfile();
-  const [entries, setEntries] = useState<ProgressEntry[]>([]);
-
-  useEffect(() => {
-    if (!profile) return;
-
-    fetch(apiUrl(`/api/progress?profileId=${profile.id}`))
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch progress');
-        return res.json();
-      })
-      .then((data: ProgressEntry[]) => {
-        setEntries(data.slice(0, 6));
-      })
-      .catch(() => {
-        setEntries([]);
-      });
-  }, [profile]);
+  const url = profile ? apiUrl(`/api/progress?profileId=${profile.id}`) : null;
+  const { data } = useFetch<ProgressEntry[]>(url);
+  const entries = (data ?? []).slice(0, 6);
 
   if (!profile || entries.length === 0) return null;
 
   const hero = entries[0];
   const rest = entries.slice(1);
-  const heroProgress = hero.page_count != null
-    ? Math.min(Math.round((hero.current_page / hero.page_count) * 100), 100)
-    : null;
+  const heroProgress =
+    hero.page_count != null
+      ? Math.min(Math.round((hero.current_page / hero.page_count) * 100), 100)
+      : null;
 
   return (
     <section className="mb-8">
@@ -60,9 +37,7 @@ export function ContinueReading() {
           />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-foreground">
-            {hero.series_title}
-          </p>
+          <p className="truncate text-base font-semibold text-foreground">{hero.series_title}</p>
           <p className="mt-0.5 text-sm text-muted">
             Vol. {hero.volume_number}
             {heroProgress != null && (
@@ -88,7 +63,9 @@ export function ContinueReading() {
       {/* Remaining entries as horizontal scroll */}
       {rest.length > 0 && (
         <>
-          <h2 className="mb-3 text-sm font-medium text-muted uppercase tracking-wide">Continue Reading</h2>
+          <h2 className="mb-3 text-sm font-medium text-muted uppercase tracking-wide">
+            Continue Reading
+          </h2>
           <div className="flex gap-4 overflow-x-auto pb-2">
             {rest.map((entry) => (
               <Link
@@ -105,18 +82,20 @@ export function ContinueReading() {
                   <p className="truncate text-sm font-medium text-foreground">
                     {entry.series_title}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Vol. {entry.volume_number}
-                  </p>
+                  <p className="mt-0.5 text-xs text-muted">Vol. {entry.volume_number}</p>
                   {entry.page_count != null && (
                     <div className="mt-1.5">
                       <div className="h-1 w-full rounded-full bg-border overflow-hidden">
                         <div
                           className="h-full rounded-full bg-accent transition-all"
-                          style={{ width: `${Math.min((entry.current_page / entry.page_count) * 100, 100)}%` }}
+                          style={{
+                            width: `${Math.min((entry.current_page / entry.page_count) * 100, 100)}%`,
+                          }}
                         />
                       </div>
-                      <p className="mt-0.5 text-xs text-muted">{entry.current_page} / {entry.page_count}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {entry.current_page} / {entry.page_count}
+                      </p>
                     </div>
                   )}
                 </div>

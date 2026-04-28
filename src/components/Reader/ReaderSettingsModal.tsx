@@ -36,7 +36,7 @@ export default function ReaderSettingsModal({
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     },
-    [onClose]
+    [onClose],
   );
 
   useEffect(() => {
@@ -71,10 +71,7 @@ export default function ReaderSettingsModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60" />
       <div
         className="relative bg-neutral-900 text-white rounded-xl p-6 w-[320px] max-w-[90vw] shadow-2xl"
@@ -86,7 +83,16 @@ export default function ReaderSettingsModal({
             onClick={onClose}
             className="p-1 hover:text-white/70 transition-colors cursor-pointer"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -94,7 +100,9 @@ export default function ReaderSettingsModal({
 
         {/* Reading Direction */}
         <div className="mb-5">
-          <label className="block text-xs text-white/60 mb-2 uppercase tracking-wide">Direction</label>
+          <label className="block text-xs text-white/60 mb-2 uppercase tracking-wide">
+            Direction
+          </label>
           <div className="flex rounded-lg overflow-hidden border border-white/20">
             {(['rtl', 'ltr', 'vertical'] as ReadingDirection[]).map((dir) => (
               <button
@@ -116,7 +124,9 @@ export default function ReaderSettingsModal({
         {!isVertical && (
           <div className="mb-5">
             <div className="flex items-center justify-between">
-              <label className="text-xs text-white/60 uppercase tracking-wide">Tap to Turn Page</label>
+              <label className="text-xs text-white/60 uppercase tracking-wide">
+                Tap to Turn Page
+              </label>
               <button
                 onClick={() => setTapToTurn(!settings.tapToTurn)}
                 className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
@@ -159,7 +169,9 @@ export default function ReaderSettingsModal({
           <div className="mb-5">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs text-white/60 uppercase tracking-wide">Smart Panel Zoom</label>
+                <label className="text-xs text-white/60 uppercase tracking-wide">
+                  Smart Panel Zoom
+                </label>
                 {!hasPanelData && smartPanelZoom && (
                   <p className="text-xs text-yellow-400/80 mt-0.5">No panel data for this volume</p>
                 )}
@@ -182,7 +194,9 @@ export default function ReaderSettingsModal({
             {smartPanelZoom && (
               <div className="mt-3 pl-3 border-l border-white/10">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs text-white/60 uppercase tracking-wide">Focus Mode</label>
+                  <label className="text-xs text-white/60 uppercase tracking-wide">
+                    Focus Mode
+                  </label>
                   <button
                     onClick={() => onFocusModeChange(!focusMode)}
                     className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
@@ -201,7 +215,9 @@ export default function ReaderSettingsModal({
                 </p>
 
                 <div className="mt-4 flex items-center justify-between">
-                  <label className="text-xs text-white/60 uppercase tracking-wide">Debug Mode</label>
+                  <label className="text-xs text-white/60 uppercase tracking-wide">
+                    Debug Mode
+                  </label>
                   <button
                     onClick={() => onDebugModeChange(!debugMode)}
                     className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
@@ -226,7 +242,9 @@ export default function ReaderSettingsModal({
         {/* Page Mode */}
         {!isVertical && isWideViewport && (
           <div>
-            <label className="block text-xs text-white/60 mb-2 uppercase tracking-wide">Page Mode</label>
+            <label className="block text-xs text-white/60 mb-2 uppercase tracking-wide">
+              Page Mode
+            </label>
             <div className="flex rounded-lg overflow-hidden border border-white/20">
               {(['single', 'spread'] as PageMode[]).map((mode) => (
                 <button

@@ -34,13 +34,13 @@ export function insertPanelData(
   readingTree: ReadingTreeNode | null,
   pageType: PageType,
   processingTimeMs: number,
-  confidenceThreshold: number
+  confidenceThreshold: number,
 ): void {
   const db = getDb();
   db.prepare(
     `INSERT OR REPLACE INTO panel_data
      (volume_id, page_number, panels_json, reading_tree_json, page_type, processing_time_ms, confidence_threshold)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     volumeId,
     pageNumber,
@@ -48,21 +48,25 @@ export function insertPanelData(
     readingTree ? JSON.stringify(readingTree) : null,
     pageType,
     processingTimeMs,
-    confidenceThreshold
+    confidenceThreshold,
   );
 }
 
 export function getPanelDataForVolume(volumeId: number): PanelDataPage[] {
   const db = getDb();
-  const rows = db.prepare(
-    `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
-     FROM panel_data WHERE volume_id = ? ORDER BY page_number`
-  ).all(volumeId) as PanelDataRow[];
+  const rows = db
+    .prepare(
+      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
+     FROM panel_data WHERE volume_id = ? ORDER BY page_number`,
+    )
+    .all(volumeId) as PanelDataRow[];
 
-  return rows.map(row => ({
+  return rows.map((row) => ({
     pageNumber: row.page_number,
     panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json ? JSON.parse(row.reading_tree_json) as ReadingTreeNode : null,
+    readingTree: row.reading_tree_json
+      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
+      : null,
     pageType: row.page_type as PageType,
     processingTimeMs: row.processing_time_ms,
   }));
@@ -70,17 +74,21 @@ export function getPanelDataForVolume(volumeId: number): PanelDataPage[] {
 
 export function getPanelDataForPage(volumeId: number, pageNumber: number): PanelDataPage | null {
   const db = getDb();
-  const row = db.prepare(
-    `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
-     FROM panel_data WHERE volume_id = ? AND page_number = ?`
-  ).get(volumeId, pageNumber) as PanelDataRow | undefined;
+  const row = db
+    .prepare(
+      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
+     FROM panel_data WHERE volume_id = ? AND page_number = ?`,
+    )
+    .get(volumeId, pageNumber) as PanelDataRow | undefined;
 
   if (!row) return null;
 
   return {
     pageNumber: row.page_number,
     panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json ? JSON.parse(row.reading_tree_json) as ReadingTreeNode : null,
+    readingTree: row.reading_tree_json
+      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
+      : null,
     pageType: row.page_type as PageType,
     processingTimeMs: row.processing_time_ms,
   };
@@ -91,16 +99,20 @@ export function getPanelDataForPages(volumeId: number, pageNumbers: number[]): P
   const capped = pageNumbers.slice(0, 10);
   const db = getDb();
   const placeholders = capped.map(() => '?').join(', ');
-  const rows = db.prepare(
-    `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
+  const rows = db
+    .prepare(
+      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
      FROM panel_data WHERE volume_id = ? AND page_number IN (${placeholders})
-     ORDER BY page_number`
-  ).all(volumeId, ...capped) as PanelDataRow[];
+     ORDER BY page_number`,
+    )
+    .all(volumeId, ...capped) as PanelDataRow[];
 
-  return rows.map(row => ({
+  return rows.map((row) => ({
     pageNumber: row.page_number,
     panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json ? JSON.parse(row.reading_tree_json) as ReadingTreeNode : null,
+    readingTree: row.reading_tree_json
+      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
+      : null,
     pageType: row.page_type as PageType,
     processingTimeMs: row.processing_time_ms,
   }));
@@ -114,10 +126,14 @@ export function deletePanelDataForVolume(volumeId: number): number {
 
 export function getPanelDataStatus(volumeId: number): PanelDataStatus {
   const db = getDb();
-  const volume = db.prepare('SELECT page_count FROM volumes WHERE id = ?').get(volumeId) as { page_count: number | null } | undefined;
+  const volume = db.prepare('SELECT page_count FROM volumes WHERE id = ?').get(volumeId) as
+    | { page_count: number | null }
+    | undefined;
   const totalPages = volume?.page_count ?? 0;
 
-  const countRow = db.prepare('SELECT COUNT(*) as cnt FROM panel_data WHERE volume_id = ?').get(volumeId) as { cnt: number };
+  const countRow = db
+    .prepare('SELECT COUNT(*) as cnt FROM panel_data WHERE volume_id = ?')
+    .get(volumeId) as { cnt: number };
   const processedPages = countRow.cnt;
 
   return {

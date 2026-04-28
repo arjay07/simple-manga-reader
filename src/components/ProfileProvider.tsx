@@ -2,16 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { apiUrl } from '@/lib/basePath';
-
-interface Profile {
-  id: number;
-  name: string;
-  avatar: string | null;
-  reading_direction: 'rtl' | 'ltr';
-  theme: 'dark' | 'light';
-  reader_settings: string;
-  is_child: number;
-}
+import { STORAGE_KEYS } from '@/lib/constants';
+import type { Profile } from '@/types';
 
 interface ProfileContextType {
   profile: Profile | null;
@@ -22,7 +14,7 @@ interface ProfileContextType {
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'profileId';
+const STORAGE_KEY = STORAGE_KEYS.profileId;
 
 export default function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -35,7 +27,7 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('theme', theme);
+    localStorage.setItem(STORAGE_KEYS.theme, theme);
   };
 
   useEffect(() => {

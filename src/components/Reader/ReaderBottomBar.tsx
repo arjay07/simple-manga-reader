@@ -29,9 +29,10 @@ export default function ReaderBottomBar({
   const isRtl = direction === 'rtl';
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const pageText = spreadMode && currentPage + 1 <= totalPages
-    ? `Pages ${currentPage}-${currentPage + 1} / ${totalPages}`
-    : `Page ${currentPage} / ${totalPages}`;
+  const pageText =
+    spreadMode && currentPage + 1 <= totalPages
+      ? `Pages ${currentPage}-${currentPage + 1} / ${totalPages}`
+      : `Page ${currentPage} / ${totalPages}`;
 
   const progress = totalPages > 1 ? (currentPage - 1) / (totalPages - 1) : 0;
 
@@ -44,7 +45,7 @@ export default function ReaderBottomBar({
     (page: number) => {
       onPageChange(page);
     },
-    [onPageChange]
+    [onPageChange],
   );
 
   return (

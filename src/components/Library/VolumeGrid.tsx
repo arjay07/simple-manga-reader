@@ -3,15 +3,7 @@
 import Link from 'next/link';
 import { VolumeThumbnail } from './VolumeThumbnail';
 import { VolumeProgressBar, useVolumeProgress, type ProgressMap } from './VolumeProgress';
-interface Volume {
-  id: number;
-  series_id: number;
-  title: string;
-  filename: string;
-  volume_number: number | null;
-  page_count: number | null;
-  format: 'pdf' | 'cbz';
-}
+import type { Volume } from '@/types';
 
 export function VolumeGrid({
   seriesId,
@@ -64,9 +56,7 @@ export function VolumeGrid({
               volumeId={volume.id}
               volumeNumber={volume.volume_number}
             />
-            <h3 className="truncate text-sm font-medium text-foreground">
-              {volume.title}
-            </h3>
+            <h3 className="truncate text-sm font-medium text-foreground">{volume.title}</h3>
             {volume.volume_number != null && (
               <p className="text-xs text-muted">Vol. {volume.volume_number}</p>
             )}

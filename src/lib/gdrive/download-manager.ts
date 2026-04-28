@@ -53,7 +53,7 @@ class DownloadManager {
       id: job.id,
       seriesName: job.seriesName,
       status: job.status,
-      files: job.files.map(f => ({
+      files: job.files.map((f) => ({
         name: f.name,
         size: f.size,
         status: f.status,
@@ -165,7 +165,7 @@ class DownloadManager {
     // Emit file list
     this.emit(job, {
       type: 'file-list',
-      files: files.map(f => ({ name: f.name, size: f.size, status: f.status })),
+      files: files.map((f) => ({ name: f.name, size: f.size, status: f.status })),
     });
 
     // Emit skipped files
@@ -176,7 +176,7 @@ class DownloadManager {
     }
 
     // Start download loop (non-blocking)
-    this.downloadLoop(job).catch(err => {
+    this.downloadLoop(job).catch((err) => {
       console.error('Download loop error:', err);
       job.status = 'error';
       this.emit(job, { type: 'error', message: err.message });
@@ -205,7 +205,7 @@ class DownloadManager {
     this.emit(job, { type: 'resumed' });
 
     // Restart download loop from current file
-    this.downloadLoop(job).catch(err => {
+    this.downloadLoop(job).catch((err) => {
       console.error('Download loop error:', err);
       job.status = 'error';
       this.emit(job, { type: 'error', message: err.message });
@@ -231,7 +231,7 @@ class DownloadManager {
     this.emit(job, { type: 'cancelled' });
 
     // Rescan if any files completed
-    const hasCompleted = job.files.some(f => f.status === 'complete');
+    const hasCompleted = job.files.some((f) => f.status === 'complete');
     if (hasCompleted) {
       try {
         scanMangaDirectory();
@@ -319,7 +319,8 @@ class DownloadManager {
           }
 
           lastError = err instanceof Error ? err : new Error(String(err));
-          const isRateLimit = lastError.message.includes('429') || lastError.message.includes('403');
+          const isRateLimit =
+            lastError.message.includes('429') || lastError.message.includes('403');
 
           if (!isRateLimit || attempt === MAX_RETRIES) {
             this.emit(job, {
@@ -339,7 +340,7 @@ class DownloadManager {
           });
 
           // Wait with ability to be cancelled
-          await new Promise<void>(resolve => {
+          await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, delay);
             // If job gets cancelled during wait, resolve immediately
             const checkInterval = setInterval(() => {
@@ -363,7 +364,8 @@ class DownloadManager {
 
       if (success) {
         file.status = 'complete';
-        file.bytesDownloaded = file.size || (fs.existsSync(destPath) ? fs.statSync(destPath).size : 0);
+        file.bytesDownloaded =
+          file.size || (fs.existsSync(destPath) ? fs.statSync(destPath).size : 0);
 
         // Update manifest
         const md5 = fileMd5(destPath);
@@ -390,7 +392,7 @@ class DownloadManager {
 
       this.emit(job, {
         type: 'done',
-        totalFiles: job.files.filter(f => f.status === 'complete').length,
+        totalFiles: job.files.filter((f) => f.status === 'complete').length,
         totalBytes,
         elapsed,
       });

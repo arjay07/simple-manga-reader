@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ jobId: string }> }
+  { params }: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await params;
   const job = downloadManager.getJob(jobId);
@@ -28,7 +28,9 @@ export async function GET(
       // Listen for new events
       const listener = (event: DownloadEvent) => {
         try {
-          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+          controller.enqueue(
+            encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`),
+          );
 
           // Close stream on terminal events
           if (event.type === 'done' || event.type === 'cancelled' || event.type === 'error') {

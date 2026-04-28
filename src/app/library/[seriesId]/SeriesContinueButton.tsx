@@ -4,17 +4,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useProfile } from '@/components/ProfileProvider';
 import type { ProgressMap } from '@/components/Library/VolumeProgress';
+import type { Volume as FullVolume } from '@/types';
 
-interface Volume {
-  id: number;
-  volume_number: number | null;
-  page_count: number | null;
-}
+type Volume = Pick<FullVolume, 'id' | 'volume_number' | 'page_count'>;
 
 function getReadingDestination(
   volumes: Volume[],
   progressMap: ProgressMap,
-): { volumeId: number; page: number; volumeNumber: number | null; label: 'start' | 'continue' } | null {
+): {
+  volumeId: number;
+  page: number;
+  volumeNumber: number | null;
+  label: 'start' | 'continue';
+} | null {
   if (volumes.length === 0) return null;
 
   // Find volume with most recent progress in this series
@@ -25,7 +27,11 @@ function getReadingDestination(
     const vid = Number(vidStr);
     if (!seriesVolumeIds.has(vid)) continue;
     if (!mostRecent || progress.updated_at > mostRecent.updatedAt) {
-      mostRecent = { volumeId: vid, currentPage: progress.current_page, updatedAt: progress.updated_at };
+      mostRecent = {
+        volumeId: vid,
+        currentPage: progress.current_page,
+        updatedAt: progress.updated_at,
+      };
     }
   }
 
@@ -50,7 +56,12 @@ function getReadingDestination(
     const currentIdx = volumes.indexOf(currentVolume);
     const nextVolume = volumes[currentIdx + 1];
     if (nextVolume) {
-      return { volumeId: nextVolume.id, page: 1, volumeNumber: nextVolume.volume_number, label: 'continue' };
+      return {
+        volumeId: nextVolume.id,
+        page: 1,
+        volumeNumber: nextVolume.volume_number,
+        label: 'continue',
+      };
     }
     // All done — point to last page of last volume
     return {
@@ -122,9 +133,7 @@ export function SeriesContinueButton({
       <PlayIcon />
       <span className="flex flex-col items-start leading-tight">
         <span>{isStart ? 'Start Reading' : 'Continue Reading'}</span>
-        {subtitle && (
-          <span className="text-xs font-normal text-white/70">{subtitle}</span>
-        )}
+        {subtitle && <span className="text-xs font-normal text-white/70">{subtitle}</span>}
       </span>
     </Link>
   );

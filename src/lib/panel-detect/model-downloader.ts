@@ -18,26 +18,28 @@ export function isModelDownloaded(): boolean {
 
 function followRedirects(url: string, dest: fs.WriteStream): Promise<void> {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        const location = res.headers.location;
-        if (!location) return reject(new Error('Redirect with no location header'));
-        res.resume();
-        followRedirects(location, dest).then(resolve, reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error(`Download failed with status ${res.statusCode}`));
-      }
-      res.pipe(dest);
-      dest.on('finish', () => {
-        dest.close();
-        resolve();
-      });
-      dest.on('error', reject);
-      res.on('error', reject);
-    }).on('error', reject);
+    https
+      .get(url, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const location = res.headers.location;
+          if (!location) return reject(new Error('Redirect with no location header'));
+          res.resume();
+          followRedirects(location, dest).then(resolve, reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`Download failed with status ${res.statusCode}`));
+        }
+        res.pipe(dest);
+        dest.on('finish', () => {
+          dest.close();
+          resolve();
+        });
+        dest.on('error', reject);
+        res.on('error', reject);
+      })
+      .on('error', reject);
   });
 }
 
@@ -54,7 +56,11 @@ export async function downloadModel(): Promise<string> {
     fs.renameSync(tmpPath, MODEL_PATH);
     return MODEL_PATH;
   } catch (err) {
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      /* ignore */
+    }
     throw err;
   }
 }

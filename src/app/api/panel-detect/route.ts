@@ -17,45 +17,40 @@ export async function POST(req: NextRequest) {
 
     // Look up the volume file path and format
     const db = getDb();
-    const row = db.prepare(
-      `SELECT s.folder_name, v.filename, v.page_count, v.format
+    const row = db
+      .prepare(
+        `SELECT s.folder_name, v.filename, v.page_count, v.format
        FROM volumes v
        JOIN series s ON v.series_id = s.id
-       WHERE v.series_id = ? AND v.id = ?`
-    ).get(seriesId, volumeId) as {
-      folder_name: string;
-      filename: string;
-      page_count: number | null;
-      format: Format;
-    } | undefined;
+       WHERE v.series_id = ? AND v.id = ?`,
+      )
+      .get(seriesId, volumeId) as
+      | {
+          folder_name: string;
+          filename: string;
+          page_count: number | null;
+          format: Format;
+        }
+      | undefined;
 
     if (!row) {
-      return NextResponse.json(
-        { error: 'Volume not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
     }
 
     const filePath = path.join(getMangaDir(), row.folder_name, row.filename);
     if (!fs.existsSync(filePath)) {
-      return NextResponse.json(
-        { error: 'Volume file not found on disk' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Volume file not found on disk' }, { status: 404 });
     }
 
     const pageNum = Number(page);
     if (!Number.isInteger(pageNum) || pageNum < 1) {
-      return NextResponse.json(
-        { error: 'Invalid page number' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid page number' }, { status: 400 });
     }
 
     if (row.page_count && pageNum > row.page_count) {
       return NextResponse.json(
         { error: `Page ${pageNum} exceeds total pages (${row.page_count})` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -72,9 +67,7 @@ export async function POST(req: NextRequest) {
     const metadata = await sharp(imageBuffer).metadata();
 
     // Encode page image as base64 JPEG for the client
-    const jpegBuffer = await sharp(imageBuffer)
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    const jpegBuffer = await sharp(imageBuffer).jpeg({ quality: 80 }).toBuffer();
     const pageImage = jpegBuffer.toString('base64');
 
     const response = {
@@ -97,9 +90,6 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Panel detection error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: `Panel detection failed: ${message}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `Panel detection failed: ${message}` }, { status: 500 });
   }
 }

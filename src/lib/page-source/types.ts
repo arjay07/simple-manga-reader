@@ -7,13 +7,7 @@ export interface PageSource {
   close(): Promise<void> | void;
 }
 
-export const RECOGNISED_IMAGE_EXTENSIONS = [
-  '.jpg',
-  '.jpeg',
-  '.png',
-  '.webp',
-  '.avif',
-] as const;
+export const RECOGNISED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.avif'] as const;
 
 export function isRecognisedImageExtension(name: string): boolean {
   const lower = name.toLowerCase();

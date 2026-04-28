@@ -3,7 +3,14 @@ import { jobManager } from './job-manager';
 import type { JobState } from './job-manager';
 
 export type QueueStatus = 'pending' | 'running' | 'paused' | 'completed' | 'cancelled' | 'error';
-export type QueueItemStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'error' | 'paused' | 'cancelled';
+export type QueueItemStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'skipped'
+  | 'error'
+  | 'paused'
+  | 'cancelled';
 
 export interface QueueItemState {
   id: number;
@@ -46,7 +53,7 @@ class QueueProcessor {
     seriesId: number,
     volumeIds: number[],
     confidenceThreshold: number,
-    force: boolean
+    force: boolean,
   ): Promise<QueueState> {
     if (this.isActive()) {
       throw new Error('A queue is already active');
@@ -66,7 +73,7 @@ class QueueProcessor {
     const volumes = volumeIds.map((vid) => {
       const vol = db
         .prepare(
-          'SELECT id, title, volume_number, page_count FROM volumes WHERE id = ? AND series_id = ?'
+          'SELECT id, title, volume_number, page_count FROM volumes WHERE id = ? AND series_id = ?',
         )
         .get(vid, seriesId) as
         | { id: number; title: string; volume_number: number | null; page_count: number | null }
@@ -89,7 +96,7 @@ class QueueProcessor {
     const queueResult = db
       .prepare(
         `INSERT INTO panel_queue (series_id, status, confidence_threshold, force, created_at)
-         VALUES (?, 'pending', ?, ?, datetime('now'))`
+         VALUES (?, 'pending', ?, ?, datetime('now'))`,
       )
       .run(seriesId, confidenceThreshold, force ? 1 : 0);
 
@@ -98,7 +105,7 @@ class QueueProcessor {
     // Insert items
     const insertItem = db.prepare(
       `INSERT INTO panel_queue_items (queue_id, volume_id, sort_order, status)
-       VALUES (?, ?, ?, 'pending')`
+       VALUES (?, ?, ?, 'pending')`,
     );
 
     for (let i = 0; i < volumes.length; i++) {
@@ -112,7 +119,9 @@ class QueueProcessor {
       console.error('Queue processor fatal error:', err);
       const errDb = getDb();
       errDb
-        .prepare("UPDATE panel_queue SET status = 'error', completed_at = datetime('now') WHERE id = ?")
+        .prepare(
+          "UPDATE panel_queue SET status = 'error', completed_at = datetime('now') WHERE id = ?",
+        )
         .run(queueId);
       this.activeQueueId = null;
       this.processing = false;
@@ -153,22 +162,26 @@ class QueueProcessor {
   private buildState(queueId: number): QueueState {
     const db = getDb();
 
-    const queue = db.prepare(
-      `SELECT pq.*, s.title as series_title
+    const queue = db
+      .prepare(
+        `SELECT pq.*, s.title as series_title
        FROM panel_queue pq
        LEFT JOIN series s ON pq.series_id = s.id
-       WHERE pq.id = ?`
-    ).get(queueId) as {
-      id: number;
-      series_id: number;
-      status: QueueStatus;
-      confidence_threshold: number;
-      force: number;
-      created_at: string;
-      started_at: string | null;
-      completed_at: string | null;
-      series_title: string;
-    } | undefined;
+       WHERE pq.id = ?`,
+      )
+      .get(queueId) as
+      | {
+          id: number;
+          series_id: number;
+          status: QueueStatus;
+          confidence_threshold: number;
+          force: number;
+          created_at: string;
+          started_at: string | null;
+          completed_at: string | null;
+          series_title: string;
+        }
+      | undefined;
 
     if (!queue) {
       return {
@@ -181,13 +194,15 @@ class QueueProcessor {
       };
     }
 
-    const items = db.prepare(
-      `SELECT pqi.*, v.title as volume_title
+    const items = db
+      .prepare(
+        `SELECT pqi.*, v.title as volume_title
        FROM panel_queue_items pqi
        LEFT JOIN volumes v ON pqi.volume_id = v.id
        WHERE pqi.queue_id = ?
-       ORDER BY pqi.sort_order`
-    ).all(queueId) as Array<{
+       ORDER BY pqi.sort_order`,
+      )
+      .all(queueId) as Array<{
       id: number;
       volume_id: number;
       volume_title: string;
@@ -223,9 +238,7 @@ class QueueProcessor {
       runningItem.currentPage = currentJobState.currentPage;
     }
 
-    const completedVolumes = mappedItems.filter(
-      (i) => i.status === 'completed'
-    ).length;
+    const completedVolumes = mappedItems.filter((i) => i.status === 'completed').length;
 
     return {
       status: queue.status,
@@ -249,7 +262,9 @@ class QueueProcessor {
 
     if (!this.activeQueueId) {
       const running = db
-        .prepare("SELECT id FROM panel_queue WHERE status = 'running' ORDER BY created_at DESC LIMIT 1")
+        .prepare(
+          "SELECT id FROM panel_queue WHERE status = 'running' ORDER BY created_at DESC LIMIT 1",
+        )
         .get() as { id: number } | undefined;
       if (running) {
         this.activeQueueId = running.id;
@@ -280,7 +295,7 @@ class QueueProcessor {
     // Update DB
     db.prepare("UPDATE panel_queue SET status = 'paused' WHERE id = ?").run(this.activeQueueId);
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'paused' WHERE queue_id = ? AND status = 'running'"
+      "UPDATE panel_queue_items SET status = 'paused' WHERE queue_id = ? AND status = 'running'",
     ).run(this.activeQueueId);
 
     return this.getState();
@@ -293,7 +308,9 @@ class QueueProcessor {
     // (handles server restarts where the singleton lost its state)
     if (!this.activeQueueId) {
       const paused = db
-        .prepare("SELECT id FROM panel_queue WHERE status = 'paused' ORDER BY created_at DESC LIMIT 1")
+        .prepare(
+          "SELECT id FROM panel_queue WHERE status = 'paused' ORDER BY created_at DESC LIMIT 1",
+        )
         .get() as { id: number } | undefined;
       if (paused) {
         this.activeQueueId = paused.id;
@@ -317,7 +334,7 @@ class QueueProcessor {
     // Update DB
     db.prepare("UPDATE panel_queue SET status = 'running' WHERE id = ?").run(this.activeQueueId);
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'paused'"
+      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'paused'",
     ).run(this.activeQueueId);
 
     // Resume the JobManager if it's paused
@@ -334,12 +351,14 @@ class QueueProcessor {
       this.loopPromise = this.processLoop(
         this.activeQueueId,
         queue.confidence_threshold,
-        queue.force === 1
+        queue.force === 1,
       ).catch((err) => {
         console.error('Queue processor fatal error on resume:', err);
         const errDb = getDb();
         errDb
-          .prepare("UPDATE panel_queue SET status = 'error', completed_at = datetime('now') WHERE id = ?")
+          .prepare(
+            "UPDATE panel_queue SET status = 'error', completed_at = datetime('now') WHERE id = ?",
+          )
           .run(this.activeQueueId!);
         this.activeQueueId = null;
         this.processing = false;
@@ -354,7 +373,9 @@ class QueueProcessor {
 
     if (!this.activeQueueId) {
       const active = db
-        .prepare("SELECT id FROM panel_queue WHERE status IN ('running', 'paused') ORDER BY created_at DESC LIMIT 1")
+        .prepare(
+          "SELECT id FROM panel_queue WHERE status IN ('running', 'paused') ORDER BY created_at DESC LIMIT 1",
+        )
         .get() as { id: number } | undefined;
       if (active) {
         this.activeQueueId = active.id;
@@ -384,13 +405,13 @@ class QueueProcessor {
 
     // Update DB: cancel current item, skip remaining
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'cancelled' WHERE queue_id = ? AND status IN ('running', 'paused')"
+      "UPDATE panel_queue_items SET status = 'cancelled' WHERE queue_id = ? AND status IN ('running', 'paused')",
     ).run(this.activeQueueId);
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'skipped' WHERE queue_id = ? AND status = 'pending'"
+      "UPDATE panel_queue_items SET status = 'skipped' WHERE queue_id = ? AND status = 'pending'",
     ).run(this.activeQueueId);
     db.prepare(
-      "UPDATE panel_queue SET status = 'cancelled', completed_at = datetime('now') WHERE id = ?"
+      "UPDATE panel_queue SET status = 'cancelled', completed_at = datetime('now') WHERE id = ?",
     ).run(this.activeQueueId);
 
     const state = this.getState();
@@ -406,7 +427,7 @@ class QueueProcessor {
     // Find an interrupted queue
     const queue = db
       .prepare(
-        "SELECT id, status, confidence_threshold, force FROM panel_queue WHERE status IN ('running', 'paused') ORDER BY created_at DESC LIMIT 1"
+        "SELECT id, status, confidence_threshold, force FROM panel_queue WHERE status IN ('running', 'paused') ORDER BY created_at DESC LIMIT 1",
       )
       .get() as
       | { id: number; status: string; confidence_threshold: number; force: number }
@@ -419,14 +440,14 @@ class QueueProcessor {
     // Fix any items that were 'running' when the server crashed — reset to 'pending'
     // so the processLoop picks them up (page-level skip handles resume)
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'running'"
+      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status = 'running'",
     ).run(queue.id);
 
     // Always pause interrupted queues on restart — auto-resuming saturates CPU
     // and starves web requests. The user can resume manually when ready.
     db.prepare("UPDATE panel_queue SET status = 'paused' WHERE id = ?").run(queue.id);
     db.prepare(
-      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status IN ('paused', 'running')"
+      "UPDATE panel_queue_items SET status = 'pending' WHERE queue_id = ? AND status IN ('paused', 'running')",
     ).run(queue.id);
     console.log(`Restored panel queue ${queue.id} as paused — resume manually when ready`);
   }
@@ -434,21 +455,21 @@ class QueueProcessor {
   private async processLoop(
     queueId: number,
     confidenceThreshold: number,
-    force: boolean
+    force: boolean,
   ): Promise<void> {
     this.processing = true;
     const db = getDb();
 
     // Mark queue as running
     db.prepare(
-      "UPDATE panel_queue SET status = 'running', started_at = COALESCE(started_at, datetime('now')) WHERE id = ?"
+      "UPDATE panel_queue SET status = 'running', started_at = COALESCE(started_at, datetime('now')) WHERE id = ?",
     ).run(queueId);
 
     while (true) {
       // Check if cancelled
-      const queue = db
-        .prepare('SELECT status FROM panel_queue WHERE id = ?')
-        .get(queueId) as { status: string } | undefined;
+      const queue = db.prepare('SELECT status FROM panel_queue WHERE id = ?').get(queueId) as
+        | { status: string }
+        | undefined;
 
       if (!queue || queue.status === 'cancelled') break;
 
@@ -462,21 +483,21 @@ class QueueProcessor {
       // Get next pending item
       const nextItem = db
         .prepare(
-          "SELECT id, volume_id FROM panel_queue_items WHERE queue_id = ? AND status = 'pending' ORDER BY sort_order LIMIT 1"
+          "SELECT id, volume_id FROM panel_queue_items WHERE queue_id = ? AND status = 'pending' ORDER BY sort_order LIMIT 1",
         )
         .get(queueId) as { id: number; volume_id: number } | undefined;
 
       if (!nextItem) {
         // All items processed
         db.prepare(
-          "UPDATE panel_queue SET status = 'completed', completed_at = datetime('now') WHERE id = ?"
+          "UPDATE panel_queue SET status = 'completed', completed_at = datetime('now') WHERE id = ?",
         ).run(queueId);
         break;
       }
 
       // Mark item as running
       db.prepare(
-        "UPDATE panel_queue_items SET status = 'running', started_at = datetime('now') WHERE id = ?"
+        "UPDATE panel_queue_items SET status = 'running', started_at = datetime('now') WHERE id = ?",
       ).run(nextItem.id);
 
       try {
@@ -496,12 +517,12 @@ class QueueProcessor {
                processed_pages = ?,
                current_page = ?,
                completed_at = datetime('now')
-           WHERE id = ?`
+           WHERE id = ?`,
         ).run(
           finalState.totalPages,
           finalState.processedPages,
           finalState.currentPage,
-          nextItem.id
+          nextItem.id,
         );
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -510,7 +531,7 @@ class QueueProcessor {
         db.prepare(
           `UPDATE panel_queue_items
            SET status = 'error', error = ?, completed_at = datetime('now')
-           WHERE id = ?`
+           WHERE id = ?`,
         ).run(errorMsg, nextItem.id);
       }
     }

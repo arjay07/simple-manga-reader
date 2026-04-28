@@ -5,7 +5,7 @@ services:
       args:
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     ports:
-      - "${PORT:-3000}:3000"
+      - '${PORT:-3000}:3000'
     volumes:
       - ${MANGA_DIR_HOST:?Set MANGA_DIR_HOST in .env to your manga folder path}:/manga
       - manga-data:/app/data

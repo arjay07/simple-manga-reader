@@ -2,9 +2,9 @@ export type FileStatus = 'queued' | 'downloading' | 'complete' | 'error' | 'skip
 export type JobStatus = 'listing' | 'downloading' | 'paused' | 'done' | 'cancelled' | 'error';
 
 export interface FileInfo {
-  id: string;          // Google Drive file ID
+  id: string; // Google Drive file ID
   name: string;
-  size: number;        // bytes
+  size: number; // bytes
   status: FileStatus;
   bytesDownloaded: number;
   error?: string;
@@ -20,13 +20,19 @@ export interface DownloadJob {
   currentFileIndex: number;
   abortController: AbortController | null;
   startedAt: number;
-  speed: number;       // bytes/sec
+  speed: number; // bytes/sec
   listeners: Set<(event: DownloadEvent) => void>;
 }
 
 export type DownloadEvent =
   | { type: 'file-list'; files: Array<{ name: string; size: number; status: FileStatus }> }
-  | { type: 'file-progress'; file: string; bytesDownloaded: number; totalBytes: number; speed: number }
+  | {
+      type: 'file-progress';
+      file: string;
+      bytesDownloaded: number;
+      totalBytes: number;
+      speed: number;
+    }
   | { type: 'file-complete'; file: string; size: number }
   | { type: 'file-error'; file: string; message: string; retrying: boolean }
   | { type: 'file-skipped'; file: string; size: number }
@@ -41,7 +47,13 @@ export interface JobSnapshot {
   id: string;
   seriesName: string;
   status: JobStatus;
-  files: Array<{ name: string; size: number; status: FileStatus; bytesDownloaded: number; error?: string }>;
+  files: Array<{
+    name: string;
+    size: number;
+    status: FileStatus;
+    bytesDownloaded: number;
+    error?: string;
+  }>;
   currentFileIndex: number;
   speed: number;
   startedAt: number;

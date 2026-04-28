@@ -1,32 +1,32 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSetting, setSetting, getMangaDir } from '@/lib/settings';
+import { NextRequest } from 'next/server';
+import { setSetting, getMangaDir } from '@/lib/settings';
+import { apiError, apiSuccess, parseJsonBody } from '@/lib/api-response';
 import fs from 'fs';
 
 export async function GET() {
-  return NextResponse.json({
+  return apiSuccess({
     manga_dir: getMangaDir(),
   });
 }
 
 export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-
-    if (body.manga_dir !== undefined) {
-      const dir = String(body.manga_dir).trim();
-      if (!dir) {
-        return NextResponse.json({ error: 'manga_dir cannot be empty' }, { status: 400 });
-      }
-      if (!fs.existsSync(dir)) {
-        return NextResponse.json({ error: 'Directory does not exist' }, { status: 400 });
-      }
-      setSetting('manga_dir', dir);
-    }
-
-    return NextResponse.json({
-      manga_dir: getMangaDir(),
-    });
-  } catch {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const body = await parseJsonBody<{ manga_dir?: string }>(request);
+  if (!body) {
+    return apiError('Invalid JSON body', 400);
   }
+
+  if (body.manga_dir !== undefined) {
+    const dir = String(body.manga_dir).trim();
+    if (!dir) {
+      return apiError('manga_dir cannot be empty', 400);
+    }
+    if (!fs.existsSync(dir)) {
+      return apiError('Directory does not exist', 400);
+    }
+    setSetting('manga_dir', dir);
+  }
+
+  return apiSuccess({
+    manga_dir: getMangaDir(),
+  });
 }

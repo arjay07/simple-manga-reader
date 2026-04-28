@@ -22,7 +22,7 @@ const MIN_PANEL_AREA_FRACTION = 0.02;
 // Threshold for blank page (fraction of total pixels that are white)
 const BLANK_PAGE_THRESHOLD = 0.95;
 // Threshold for full-bleed detection (single panel covering this much of the page)
-const FULL_BLEED_THRESHOLD = 0.90;
+const FULL_BLEED_THRESHOLD = 0.9;
 
 /**
  * Run contour/gutter-based panel detection on an image buffer.
@@ -67,10 +67,10 @@ export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
 
   // Filter out tiny regions
   const minArea = imgWidth * imgHeight * MIN_PANEL_AREA_FRACTION;
-  const validPanels = panelRegions.filter(r => r.width * r.height >= minArea);
+  const validPanels = panelRegions.filter((r) => r.width * r.height >= minArea);
 
   // Normalize to 0-1 coordinates
-  const rawPanels: RawPanel[] = validPanels.map(r => ({
+  const rawPanels: RawPanel[] = validPanels.map((r) => ({
     x: r.x / imgWidth,
     y: r.y / imgHeight,
     width: r.width / imgWidth,
@@ -100,11 +100,7 @@ function countWhitePixels(pixels: Uint8Array): number {
 /**
  * Compute horizontal projection: for each row, the fraction of white pixels.
  */
-function horizontalProjection(
-  pixels: Uint8Array,
-  imgWidth: number,
-  region: Region
-): number[] {
+function horizontalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
   const projection = new Array(region.height);
   for (let row = 0; row < region.height; row++) {
     let whiteCount = 0;
@@ -121,11 +117,7 @@ function horizontalProjection(
 /**
  * Compute vertical projection: for each column, the fraction of white pixels.
  */
-function verticalProjection(
-  pixels: Uint8Array,
-  imgWidth: number,
-  region: Region
-): number[] {
+function verticalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
   const projection = new Array(region.width);
   for (let col = 0; col < region.width; col++) {
     let whiteCount = 0;
@@ -149,11 +141,7 @@ interface Gutter {
 /**
  * Find gutters (contiguous runs of high-white rows/columns) in a 1D projection.
  */
-function findGutters(
-  projection: number[],
-  dimension: number,
-  minWidth: number
-): Gutter[] {
+function findGutters(projection: number[], dimension: number, minWidth: number): Gutter[] {
   const gutters: Gutter[] = [];
   let i = 0;
 
@@ -182,9 +170,7 @@ function findGutters(
 
   // Filter out gutters at the very edges (page margins, not inter-panel gutters)
   const edgeMargin = dimension * 0.03;
-  return gutters.filter(g =>
-    g.center > edgeMargin && g.center < dimension - edgeMargin
-  );
+  return gutters.filter((g) => g.center > edgeMargin && g.center < dimension - edgeMargin);
 }
 
 /**
@@ -195,7 +181,7 @@ function findPanels(
   imgWidth: number,
   imgHeight: number,
   region: Region,
-  depth: number = 0
+  depth: number = 0,
 ): Region[] {
   // Prevent infinite recursion
   if (depth > 10) return [region];
@@ -217,18 +203,14 @@ function findPanels(
   }
 
   // Pick the strongest gutter direction to split on
-  const bestH = hGutters.length > 0
-    ? Math.max(...hGutters.map(g => g.strength))
-    : 0;
-  const bestV = vGutters.length > 0
-    ? Math.max(...vGutters.map(g => g.strength))
-    : 0;
+  const bestH = hGutters.length > 0 ? Math.max(...hGutters.map((g) => g.strength)) : 0;
+  const bestV = vGutters.length > 0 ? Math.max(...vGutters.map((g) => g.strength)) : 0;
 
   const results: Region[] = [];
 
   if (bestH >= bestV && hGutters.length > 0) {
     // Split horizontally along all detected gutters
-    const splits = [0, ...hGutters.map(g => g.center), region.height];
+    const splits = [0, ...hGutters.map((g) => g.center), region.height];
     for (let i = 0; i < splits.length - 1; i++) {
       const subRegion: Region = {
         x: region.x,
@@ -242,7 +224,7 @@ function findPanels(
     }
   } else if (vGutters.length > 0) {
     // Split vertically along all detected gutters
-    const splits = [0, ...vGutters.map(g => g.center), region.width];
+    const splits = [0, ...vGutters.map((g) => g.center), region.width];
     for (let i = 0; i < splits.length - 1; i++) {
       const subRegion: Region = {
         x: region.x + splits[i],
@@ -266,7 +248,7 @@ function computeGutterConfidence(
   pixels: Uint8Array,
   imgWidth: number,
   imgHeight: number,
-  region: Region
+  region: Region,
 ): number {
   // Check border whiteness as a proxy for confidence
   let borderWhite = 0;

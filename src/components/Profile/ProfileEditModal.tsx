@@ -2,16 +2,7 @@
 
 import { useEffect } from 'react';
 import ProfileForm from './ProfileForm';
-
-interface Profile {
-  id: number;
-  name: string;
-  avatar: string | null;
-  reading_direction: 'rtl' | 'ltr';
-  theme: 'dark' | 'light';
-  reader_settings: string;
-  is_child: number;
-}
+import type { Profile } from '@/types';
 
 interface ProfileEditModalProps {
   profile: Profile;

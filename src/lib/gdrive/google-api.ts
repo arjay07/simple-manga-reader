@@ -79,7 +79,7 @@ export async function downloadFile(
   fileId: string,
   destPath: string,
   apiKey: string,
-  options?: DownloadFileOptions
+  options?: DownloadFileOptions,
 ): Promise<void> {
   const partPath = destPath + '.part';
   const resumeFrom = options?.resumeFrom ?? 0;

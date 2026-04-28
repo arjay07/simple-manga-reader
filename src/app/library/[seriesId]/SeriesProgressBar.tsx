@@ -2,11 +2,9 @@
 
 import { useProfile } from '@/components/ProfileProvider';
 import type { ProgressMap } from '@/components/Library/VolumeProgress';
+import type { Volume as FullVolume } from '@/types';
 
-interface Volume {
-  id: number;
-  page_count: number | null;
-}
+type Volume = Pick<FullVolume, 'id' | 'page_count'>;
 
 export function SeriesProgressBar({
   volumes,

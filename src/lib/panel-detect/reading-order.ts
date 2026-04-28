@@ -98,8 +98,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
         Math.min(panel.y + panel.height, candidate.y + candidate.height) -
         Math.max(panel.y, candidate.y);
       const vertFractionShorter =
-        Math.max(0, vertOverlapAnchor) /
-        Math.min(panel.height, candidate.height);
+        Math.max(0, vertOverlapAnchor) / Math.min(panel.height, candidate.height);
       const vertOverlapOK = vertFractionShorter >= 0.4;
 
       if (topDiffOK || vertOverlapOK) {
@@ -115,15 +114,13 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
           const horizOverlap =
             Math.min(candidate.x + candidate.width, member.x + member.width) -
             Math.max(candidate.x, member.x);
-          const horizFraction =
-            Math.max(0, horizOverlap) / Math.min(candidate.width, member.width);
+          const horizFraction = Math.max(0, horizOverlap) / Math.min(candidate.width, member.width);
           if (horizFraction > 0.5) {
             const memberVertOverlap =
               Math.min(candidate.y + candidate.height, member.y + member.height) -
               Math.max(candidate.y, member.y);
             const memberVertFractionTaller =
-              Math.max(0, memberVertOverlap) /
-              Math.max(candidate.height, member.height);
+              Math.max(0, memberVertOverlap) / Math.max(candidate.height, member.height);
             if (memberVertFractionTaller <= 0.7) {
               horizConflict = true;
               break;
@@ -143,7 +140,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
 
   // Sort each row RTL (right edge descending)
   for (const row of rows) {
-    row.sort((a, b) => (b.x + b.width) - (a.x + a.width));
+    row.sort((a, b) => b.x + b.width - (a.x + a.width));
   }
 
   // Defer panels that span into later rows where right-side panels exist
@@ -205,7 +202,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
   }
 
   // Remove rows emptied by deferral
-  const filtered = rows.filter(r => r.length > 0);
+  const filtered = rows.filter((r) => r.length > 0);
 
   // Flatten rows into final order
   return filtered.flat();
@@ -223,8 +220,8 @@ function buildTreeFromSorted(panels: PanelWithId[]): ReadingTreeNode {
 
   if (panels.length === 2) {
     const [a, b] = panels;
-    const sameRow = Math.abs((a.y + a.height / 2) - (b.y + b.height / 2)) <
-      Math.min(a.height, b.height) * 0.5;
+    const sameRow =
+      Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < Math.min(a.height, b.height) * 0.5;
 
     if (sameRow) {
       return {

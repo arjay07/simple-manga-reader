@@ -3,26 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { HeaderMenu } from '@/components/HeaderMenu';
 import { SeriesClientContent } from './SeriesClientContent';
-
-interface Series {
-  id: number;
-  title: string;
-  folder_name: string;
-  cover_path: string | null;
-  author: string | null;
-  description: string | null;
-  mangadex_id: string | null;
-}
-
-interface Volume {
-  id: number;
-  series_id: number;
-  title: string;
-  filename: string;
-  volume_number: number | null;
-  page_count: number | null;
-  format: 'pdf' | 'cbz';
-}
+import type { Series, Volume } from '@/types';
 
 export default async function SeriesDetailPage({
   params,
@@ -32,15 +13,17 @@ export default async function SeriesDetailPage({
   const { seriesId } = await params;
   const db = getDb();
 
-  const series = db.prepare('SELECT * FROM series WHERE id = ?').get(Number(seriesId)) as Series | undefined;
+  const series = db.prepare('SELECT * FROM series WHERE id = ?').get(Number(seriesId)) as
+    | Series
+    | undefined;
 
   if (!series) {
     notFound();
   }
 
-  const volumes = db.prepare(
-    'SELECT * FROM volumes WHERE series_id = ? ORDER BY volume_number'
-  ).all(series.id) as Volume[];
+  const volumes = db
+    .prepare('SELECT * FROM volumes WHERE series_id = ? ORDER BY volume_number')
+    .all(series.id) as Volume[];
 
   return (
     <div className="min-h-screen bg-background">

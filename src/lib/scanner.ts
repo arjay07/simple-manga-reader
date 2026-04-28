@@ -18,12 +18,7 @@ function formatFromFilename(filename: string): Format | null {
  * or "Series Volume 03.cbz". Works for any recognised extension.
  */
 export function extractVolumeNumber(filename: string): number | null {
-  const patterns = [
-    /vol(?:ume)?\.?\s*(\d+)/i,
-    /v(\d+)/i,
-    /#(\d+)/i,
-    /(\d+)\.(?:pdf|cbz)$/i,
-  ];
+  const patterns = [/vol(?:ume)?\.?\s*(\d+)/i, /v(\d+)/i, /#(\d+)/i, /(\d+)\.(?:pdf|cbz)$/i];
 
   for (const pattern of patterns) {
     const match = filename.match(pattern);
@@ -48,19 +43,15 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
   }
 
   const insertSeries = db.prepare(
-    `INSERT OR IGNORE INTO series (title, folder_name) VALUES (?, ?)`
+    `INSERT OR IGNORE INTO series (title, folder_name) VALUES (?, ?)`,
   );
 
-  const getSeries = db.prepare(
-    `SELECT id FROM series WHERE folder_name = ?`
-  );
+  const getSeries = db.prepare(`SELECT id FROM series WHERE folder_name = ?`);
 
-  const getVolume = db.prepare(
-    `SELECT id FROM volumes WHERE series_id = ? AND filename = ?`
-  );
+  const getVolume = db.prepare(`SELECT id FROM volumes WHERE series_id = ? AND filename = ?`);
 
   const insertVolume = db.prepare(
-    `INSERT INTO volumes (series_id, title, filename, volume_number, format) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO volumes (series_id, title, filename, volume_number, format) VALUES (?, ?, ?, ?, ?)`,
   );
 
   let seriesCount = 0;
@@ -78,7 +69,8 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
       seriesCount++;
 
       const volumeDir = path.join(mangaDir, folderName);
-      const files = fs.readdirSync(volumeDir)
+      const files = fs
+        .readdirSync(volumeDir)
         .filter((f) => {
           const ext = path.extname(f).toLowerCase();
           return (SUPPORTED_EXTENSIONS as readonly string[]).includes(ext);
@@ -93,7 +85,7 @@ export function scanMangaDirectory(): { seriesCount: number; volumeCount: number
         const format = formatFromFilename(filename);
         if (!format) continue;
 
-        const volumeNumber = extractVolumeNumber(filename) ?? (i + 1);
+        const volumeNumber = extractVolumeNumber(filename) ?? i + 1;
         const title = path.basename(filename, path.extname(filename));
 
         insertVolume.run(series.id, title, filename, volumeNumber, format);

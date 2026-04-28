@@ -14,11 +14,13 @@ interface VolumeFileInfo {
  */
 export function resolveVolumeFile(volumeId: number): VolumeFileInfo {
   const db = getDb();
-  const row = db.prepare(
-    `SELECT s.folder_name, v.filename, v.format
+  const row = db
+    .prepare(
+      `SELECT s.folder_name, v.filename, v.format
      FROM volumes v JOIN series s ON v.series_id = s.id
-     WHERE v.id = ?`
-  ).get(volumeId) as { folder_name: string; filename: string; format: Format } | undefined;
+     WHERE v.id = ?`,
+    )
+    .get(volumeId) as { folder_name: string; filename: string; format: Format } | undefined;
 
   if (!row) {
     throw new Error(`Volume ${volumeId} not found`);
@@ -41,7 +43,7 @@ export async function extractPageAsImage(
   filePath: string,
   format: Format,
   pageNumber: number,
-  dpi: number = 300
+  dpi: number = 300,
 ): Promise<Buffer> {
   const source = openPageSource(filePath, format);
   try {

@@ -35,7 +35,7 @@ export default function EndOfVolumeOverlay({
         onDismiss();
       }
     },
-    [onDismiss]
+    [onDismiss],
   );
 
   useEffect(() => {
@@ -60,9 +60,7 @@ export default function EndOfVolumeOverlay({
           <>
             <div className="mb-2 text-2xl">&#10003;</div>
             <h3 className="mb-1 text-lg font-semibold">Series Complete</h3>
-            <p className="mb-5 text-sm text-white/60">
-              You&apos;ve finished the last volume.
-            </p>
+            <p className="mb-5 text-sm text-white/60">You&apos;ve finished the last volume.</p>
           </>
         )}
 

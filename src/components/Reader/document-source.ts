@@ -71,7 +71,7 @@ export class PdfDocumentSource implements DocumentSource {
     const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
     GlobalWorkerOptions.workerSrc = new URL(
       'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
+      import.meta.url,
     ).toString();
     const doc = await getDocument(url).promise;
     return new PdfDocumentSource(doc);
@@ -110,7 +110,7 @@ export class CbzDocumentSource implements DocumentSource {
 
   private constructor(
     private readonly zip: JSZip,
-    private readonly entryNames: string[]
+    private readonly entryNames: string[],
   ) {
     this.numPages = entryNames.length;
   }
@@ -238,7 +238,7 @@ export class CbzDocumentSource implements DocumentSource {
 
 export async function loadDocumentSource(
   url: string,
-  format: DocumentFormat
+  format: DocumentFormat,
 ): Promise<DocumentSource> {
   if (format === 'cbz') return CbzDocumentSource.load(url);
   return PdfDocumentSource.load(url);

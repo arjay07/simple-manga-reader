@@ -9,26 +9,7 @@ import { SeriesContinueButton } from './SeriesContinueButton';
 import { SeriesProgressBar } from './SeriesProgressBar';
 import { useAdmin } from '@/components/AdminProvider';
 import { apiUrl } from '@/lib/basePath';
-
-interface Volume {
-  id: number;
-  series_id: number;
-  title: string;
-  filename: string;
-  volume_number: number | null;
-  page_count: number | null;
-  format: 'pdf' | 'cbz';
-}
-
-interface Series {
-  id: number;
-  title: string;
-  folder_name: string;
-  cover_path: string | null;
-  author: string | null;
-  description: string | null;
-  mangadex_id: string | null;
-}
+import type { Series, Volume } from '@/types';
 
 interface MetadataCandidate {
   mangadexId: string;
@@ -76,10 +57,10 @@ export function SeriesClientContent({
     try {
       const res = await fetch(apiUrl(`/api/manga/${series.id}/metadata/search`));
       if (!res.ok) {
-        const data = await res.json() as { error?: string };
+        const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? 'Search failed');
       }
-      const data = await res.json() as { candidates: MetadataCandidate[] };
+      const data = (await res.json()) as { candidates: MetadataCandidate[] };
       if (data.candidates.length === 0) {
         setFetchState('error');
         setErrorMsg('No matches found on MangaDex for this series title.');
@@ -108,7 +89,7 @@ export function SeriesClientContent({
         }),
       });
       if (!res.ok) throw new Error('Save failed');
-      const updated = await res.json() as Series;
+      const updated = (await res.json()) as Series;
       setSeries(updated);
       setCandidates([]);
     } catch {
@@ -133,9 +114,7 @@ export function SeriesClientContent({
 
         <div className="flex-1">
           <h1 className="text-3xl font-bold text-foreground">{series.title}</h1>
-          {series.author && (
-            <p className="mt-1 text-muted">{series.author}</p>
-          )}
+          {series.author && <p className="mt-1 text-muted">{series.author}</p>}
           {series.description && (
             <p className="mt-3 text-sm text-foreground/80">{series.description}</p>
           )}
@@ -150,10 +129,7 @@ export function SeriesClientContent({
                 volumes={volumes}
                 progressMap={progressMap}
               />
-              <SeriesProgressBar
-                volumes={volumes}
-                progressMap={progressMap}
-              />
+              <SeriesProgressBar volumes={volumes} progressMap={progressMap} />
             </div>
           )}
 
@@ -173,9 +149,7 @@ export function SeriesClientContent({
               >
                 {deleting ? 'Deleting…' : 'Delete Series'}
               </button>
-              {fetchState === 'error' && (
-                <p className="text-sm text-red-500">{errorMsg}</p>
-              )}
+              {fetchState === 'error' && <p className="text-sm text-red-500">{errorMsg}</p>}
             </div>
           )}
         </div>
@@ -188,7 +162,8 @@ export function SeriesClientContent({
             <div className="p-6 pb-4 border-b border-border shrink-0">
               <h2 className="text-lg font-semibold text-foreground">Select a Match</h2>
               <p className="mt-1 text-sm text-muted">
-                {candidates.length} result{candidates.length !== 1 ? 's' : ''} from MangaDex — pick the correct one.
+                {candidates.length} result{candidates.length !== 1 ? 's' : ''} from MangaDex — pick
+                the correct one.
               </p>
             </div>
 
@@ -204,9 +179,7 @@ export function SeriesClientContent({
                   }`}
                 >
                   <p className="font-medium text-foreground text-sm">{c.title}</p>
-                  {c.author && (
-                    <p className="text-xs text-muted mt-0.5">{c.author}</p>
-                  )}
+                  {c.author && <p className="text-xs text-muted mt-0.5">{c.author}</p>}
                   {c.description && (
                     <p className="text-xs text-foreground/70 mt-1 line-clamp-2">{c.description}</p>
                   )}
@@ -214,9 +187,7 @@ export function SeriesClientContent({
               ))}
             </div>
 
-            {errorMsg && (
-              <p className="px-6 pb-2 text-sm text-red-500">{errorMsg}</p>
-            )}
+            {errorMsg && <p className="px-6 pb-2 text-sm text-red-500">{errorMsg}</p>}
 
             <div className="p-6 pt-4 border-t border-border shrink-0 flex justify-end gap-3">
               <button

@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { getPanelDataForVolume, getPanelDataStatus, deletePanelDataForVolume } from '@/lib/panel-data';
+import {
+  getPanelDataForVolume,
+  getPanelDataStatus,
+  deletePanelDataForVolume,
+} from '@/lib/panel-data';
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ volumeId: string }> }
+  { params }: { params: Promise<{ volumeId: string }> },
 ) {
   const { volumeId } = await params;
   const vid = Number(volumeId);
@@ -23,7 +27,7 @@ export async function GET(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: Promise<{ volumeId: string }> }
+  { params }: { params: Promise<{ volumeId: string }> },
 ) {
   const { volumeId } = await params;
   const vid = Number(volumeId);

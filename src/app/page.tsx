@@ -6,16 +6,7 @@ import { useProfile } from '@/components/ProfileProvider';
 import ProfileForm from '@/components/Profile/ProfileForm';
 import ProfileEditModal from '@/components/Profile/ProfileEditModal';
 import { apiUrl } from '@/lib/basePath';
-
-interface Profile {
-  id: number;
-  name: string;
-  avatar: string | null;
-  reading_direction: 'rtl' | 'ltr';
-  theme: 'dark' | 'light';
-  reader_settings: string;
-  is_child: number;
-}
+import type { Profile } from '@/types';
 
 export default function ProfileSelector() {
   const router = useRouter();
@@ -92,9 +83,7 @@ export default function ProfileSelector() {
               <p className="text-muted">Create your first profile to get started.</p>
             </div>
           )}
-          {hasProfiles && (
-            <h1 className="text-3xl font-bold text-foreground">Add Profile</h1>
-          )}
+          {hasProfiles && <h1 className="text-3xl font-bold text-foreground">Add Profile</h1>}
           <ProfileForm
             onCreated={handleProfileCreated}
             onCancel={hasProfiles ? () => setShowForm(false) : undefined}

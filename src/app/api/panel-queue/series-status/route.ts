@@ -8,20 +8,25 @@ export async function GET(req: NextRequest) {
   }
 
   const db = getDb();
-  const rows = db.prepare(
-    `SELECT v.id as volume_id, v.page_count,
+  const rows = db
+    .prepare(
+      `SELECT v.id as volume_id, v.page_count,
             COUNT(pd.id) as processed_pages
      FROM volumes v
      LEFT JOIN panel_data pd ON pd.volume_id = v.id
      WHERE v.series_id = ?
-     GROUP BY v.id`
-  ).all(Number(seriesId)) as Array<{
+     GROUP BY v.id`,
+    )
+    .all(Number(seriesId)) as Array<{
     volume_id: number;
     page_count: number | null;
     processed_pages: number;
   }>;
 
-  const status: Record<number, { totalPages: number; processedPages: number; isComplete: boolean }> = {};
+  const status: Record<
+    number,
+    { totalPages: number; processedPages: number; isComplete: boolean }
+  > = {};
   for (const row of rows) {
     const totalPages = row.page_count ?? 0;
     status[row.volume_id] = {

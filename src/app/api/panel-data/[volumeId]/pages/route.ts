@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getPanelDataForPages } from '@/lib/panel-data';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ volumeId: string }> }
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ volumeId: string }> }) {
   const { volumeId } = await params;
   const vid = Number(volumeId);
 
@@ -22,8 +19,8 @@ export async function GET(
 
   const pageNumbers = pagesParam
     .split(',')
-    .map(s => parseInt(s.trim(), 10))
-    .filter(n => !isNaN(n) && n > 0);
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !isNaN(n) && n > 0);
 
   const pages = getPanelDataForPages(vid, pageNumbers);
 

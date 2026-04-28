@@ -63,11 +63,11 @@ docker compose up -d --build
 
 ### Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MANGA_DIR_HOST` | *(required)* | Path to manga folder on host |
-| `PORT` | `3000` | Port to expose the app on |
-| `GOOGLE_API_KEY` | — | Google API key for "Add from GDrive" feature |
+| Variable         | Default      | Description                                  |
+| ---------------- | ------------ | -------------------------------------------- |
+| `MANGA_DIR_HOST` | _(required)_ | Path to manga folder on host                 |
+| `PORT`           | `3000`       | Port to expose the app on                    |
+| `GOOGLE_API_KEY` | —            | Google API key for "Add from GDrive" feature |
 
 ### HTTPS with Caddy (optional)
 
@@ -150,12 +150,14 @@ The model auto-downloads from Hugging Face on first use (~25 MB) and is stored i
 Panel detection needs to run before Smart Panel Zoom can be used. There are two admin pages for this:
 
 **Test detection on individual pages** — `/admin/panel-detect`
+
 - Select a series, volume, and page number
 - Adjust the confidence threshold (default 0.25)
 - Preview detected panels with colored overlays
 - Useful for verifying detection quality before batch processing
 
 **Batch process entire series** — `/admin/panel-jobs`
+
 - Queue all volumes in a series for panel detection
 - Monitor progress, pause/resume/cancel jobs
 - View per-volume completion status
@@ -166,6 +168,7 @@ Panel detection needs to run before Smart Panel Zoom can be used. There are two 
 Once panel data exists for a volume, open the **Reader Settings** (gear icon) in the reader and toggle **Smart Panel Zoom** on. It is available in RTL and LTR reading modes (not vertical scroll).
 
 **Controls in panel zoom mode:**
+
 - **Tap / click** — next panel (crosses pages automatically)
 - **Double-tap** — toggle between panel zoom and full-page view
 - **Swipe** — preview the next panel with an animated transition
@@ -173,12 +176,12 @@ Once panel data exists for a volume, open the **Reader Settings** (gear icon) in
 
 ## Tech stack
 
-| Component | Library |
-|-----------|---------|
-| Framework | [Next.js](https://nextjs.org/) 16 (App Router) |
-| UI | [React](https://react.dev/) 19, [Tailwind CSS](https://tailwindcss.com/) v4 |
-| Database | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) |
-| PDF rendering (client) | [pdfjs-dist](https://github.com/nickolay/nickolay-pdfjs) (Mozilla PDF.js) |
-| PDF page extraction (server) | [mupdf](https://mupdf.com/) |
-| Panel detection model | [YOLOv11 trained on Manga109](https://huggingface.co/deepghs/manga109_yolo) via [ONNX Runtime](https://onnxruntime.ai/) |
-| Image processing | [sharp](https://sharp.pixelplumbing.com/) |
+| Component                    | Library                                                                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Framework                    | [Next.js](https://nextjs.org/) 16 (App Router)                                                                          |
+| UI                           | [React](https://react.dev/) 19, [Tailwind CSS](https://tailwindcss.com/) v4                                             |
+| Database                     | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)                                                            |
+| PDF rendering (client)       | [pdfjs-dist](https://github.com/nickolay/nickolay-pdfjs) (Mozilla PDF.js)                                               |
+| PDF page extraction (server) | [mupdf](https://mupdf.com/)                                                                                             |
+| Panel detection model        | [YOLOv11 trained on Manga109](https://huggingface.co/deepghs/manga109_yolo) via [ONNX Runtime](https://onnxruntime.ai/) |
+| Image processing             | [sharp](https://sharp.pixelplumbing.com/)                                                                               |

@@ -18,13 +18,17 @@ interface SeriesRow {
 export default function LibraryPage() {
   const mangaDir = getMangaDir();
   const db = getDb();
-  const series = db.prepare(`
+  const series = db
+    .prepare(
+      `
     SELECT s.*, COUNT(v.id) as volume_count
     FROM series s
     LEFT JOIN volumes v ON v.series_id = s.id
     GROUP BY s.id
     ORDER BY s.title
-  `).all() as SeriesRow[];
+  `,
+    )
+    .all() as SeriesRow[];
 
   return (
     <div className="min-h-screen bg-background">

@@ -2,16 +2,7 @@
 
 import { useState } from 'react';
 import { apiUrl } from '@/lib/basePath';
-
-interface Profile {
-  id: number;
-  name: string;
-  avatar: string | null;
-  reading_direction: 'rtl' | 'ltr';
-  theme: 'dark' | 'light';
-  reader_settings: string;
-  is_child: number;
-}
+import type { Profile } from '@/types';
 
 const EMOJI_OPTIONS = ['😊', '📚', '🐉', '⚡', '🌟', '🎮', '🦊', '🌙', '🔥', '🌊', '👾', '🍜'];
 
@@ -100,10 +91,7 @@ export default function ProfileForm({
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="w-full max-w-md rounded-xl bg-surface p-6 space-y-6"
-    >
+    <form onSubmit={handleSubmit} className="w-full max-w-md rounded-xl bg-surface p-6 space-y-6">
       <h2 className="text-xl font-semibold text-foreground">
         {isEdit ? 'Edit Profile' : 'Create Profile'}
       </h2>

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     if (active) {
       return NextResponse.json(
         { error: 'A download is already in progress', activeJobId: active.id },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
@@ -25,13 +25,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       jobId,
-      files: files.map(f => ({ name: f.name, size: f.size, status: f.status })),
+      files: files.map((f) => ({ name: f.name, size: f.size, status: f.status })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    const status = message.includes('not configured') ? 500
-      : message.includes('Invalid') || message.includes('No PDF') ? 400
-      : 500;
+    const status = message.includes('not configured')
+      ? 500
+      : message.includes('Invalid') || message.includes('No PDF')
+        ? 400
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

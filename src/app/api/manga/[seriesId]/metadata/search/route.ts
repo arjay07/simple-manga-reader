@@ -4,7 +4,7 @@ import { searchManga } from '@/lib/mangadex';
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ seriesId: string }> }
+  { params }: { params: Promise<{ seriesId: string }> },
 ) {
   const { seriesId } = await params;
   const db = getDb();
@@ -22,9 +22,6 @@ export async function GET(
     return NextResponse.json({ candidates });
   } catch (error) {
     console.error('MangaDex search failed:', error);
-    return NextResponse.json(
-      { error: 'Failed to reach MangaDex API' },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: 'Failed to reach MangaDex API' }, { status: 502 });
   }
 }

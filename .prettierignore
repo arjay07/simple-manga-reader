@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+build
+dist
+public/yolo
+data
+coverage
+*.lock
+package-lock.json
+
+# Tooling and history — owned by their generators, don't reformat
+.claude
+openspec/changes
+openspec/specs
+openspec/config.yaml

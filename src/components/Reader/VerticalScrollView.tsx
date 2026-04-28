@@ -13,7 +13,12 @@ interface VerticalScrollViewProps {
   snapEnabled?: boolean;
 }
 
-export default function VerticalScrollView({ pdfDocument, totalPages, onPageChange, snapEnabled = false }: VerticalScrollViewProps) {
+export default function VerticalScrollView({
+  pdfDocument,
+  totalPages,
+  onPageChange,
+  snapEnabled = false,
+}: VerticalScrollViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const renderedPages = useRef<Set<number>>(new Set());
@@ -34,7 +39,9 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
     }
 
     init();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pdfDocument, totalPages]);
 
   // Apply placeholder dimensions to all canvases based on stored aspect ratio
@@ -82,7 +89,7 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
         // render cancelled
       }
     },
-    [pdfDocument]
+    [pdfDocument],
   );
 
   // Clear a rendered page canvas back to placeholder dimensions
@@ -143,7 +150,7 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
         root: container,
         rootMargin: `${margin}px 0px ${margin}px 0px`,
         threshold: [0, 0.25, 0.5, 0.75, 1],
-      }
+      },
     );
 
     const canvases = canvasRefs.current;
@@ -221,7 +228,9 @@ export default function VerticalScrollView({ pdfDocument, totalPages, onPageChan
         {Array.from({ length: totalPages }, (_, i) => (
           <canvas
             key={i}
-            ref={(el) => { canvasRefs.current[i] = el; }}
+            ref={(el) => {
+              canvasRefs.current[i] = el;
+            }}
             data-page={i + 1}
             className="w-full max-w-full"
           />

@@ -17,14 +17,16 @@ export function GDriveOverlay() {
 
   const { state } = useGDriveProgress(jobId);
 
-  const isDownloading = !!jobId && (state.status === 'downloading' || state.status === 'paused' || state.status === 'listing');
+  const isDownloading =
+    !!jobId &&
+    (state.status === 'downloading' || state.status === 'paused' || state.status === 'listing');
 
   // Check for active job on mount
   useEffect(() => {
     if (!isAdmin) return;
     fetch(apiUrl('/api/gdrive/status'))
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         if (data.active && data.job?.id) {
           setJobId(data.job.id);
         }

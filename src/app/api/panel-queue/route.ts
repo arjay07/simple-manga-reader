@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       Number(seriesId),
       volumeIds.map(Number),
       confidenceThreshold,
-      force
+      force,
     );
 
     return NextResponse.json(state, { status: 202 });

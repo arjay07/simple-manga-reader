@@ -17,18 +17,22 @@ interface VolumeRow {
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ seriesId: string; volumeId: string }> }
+  { params }: { params: Promise<{ seriesId: string; volumeId: string }> },
 ) {
   try {
     const { seriesId, volumeId } = await params;
     const db = getDb();
 
-    const volume = db.prepare(`
+    const volume = db
+      .prepare(
+        `
       SELECT v.id, v.series_id, v.filename, v.format, s.folder_name
       FROM volumes v
       JOIN series s ON s.id = v.series_id
       WHERE v.id = ? AND v.series_id = ?
-    `).get(Number(volumeId), Number(seriesId)) as VolumeRow | undefined;
+    `,
+      )
+      .get(Number(volumeId), Number(seriesId)) as VolumeRow | undefined;
 
     if (!volume) {
       return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
@@ -77,9 +81,6 @@ export async function GET(
     });
   } catch (error) {
     console.error('Failed to generate thumbnail:', error);
-    return NextResponse.json(
-      { error: 'Failed to generate thumbnail' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate thumbnail' }, { status: 500 });
   }
 }

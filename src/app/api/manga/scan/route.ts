@@ -12,9 +12,6 @@ export async function POST() {
     });
   } catch (error) {
     console.error('Failed to scan manga directory:', error);
-    return NextResponse.json(
-      { error: 'Failed to scan manga directory' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to scan manga directory' }, { status: 500 });
   }
 }

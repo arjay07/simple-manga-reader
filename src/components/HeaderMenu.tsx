@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from './ThemeProvider';
 import { useAdmin } from './AdminProvider';
 import { useProfile } from './ProfileProvider';
+import { useClickOutside } from '@/hooks/useClickOutside';
 import { apiUrl } from '@/lib/basePath';
 
 export function HeaderMenu() {
@@ -20,28 +21,11 @@ export function HeaderMenu() {
   const { profile } = useProfile();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!open) return;
-
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [open]);
+  useClickOutside(
+    menuRef,
+    useCallback(() => setOpen(false), []),
+    open,
+  );
 
   async function handleRescan() {
     setScanning(true);
@@ -65,7 +49,9 @@ export function HeaderMenu() {
         const data = await res.json();
         setMangaDir(data.manga_dir ?? '');
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   async function handleSaveDir() {
@@ -120,7 +106,7 @@ export function HeaderMenu() {
             className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-t-lg"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/20 text-sm">
-              {profile?.avatar ?? (profile?.name?.[0]?.toUpperCase() ?? '?')}
+              {profile?.avatar ?? profile?.name?.[0]?.toUpperCase() ?? '?'}
             </span>
             <span className="truncate">{profile?.name ?? 'Switch Profile'}</span>
           </button>
@@ -152,7 +138,17 @@ export function HeaderMenu() {
                 className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors"
               >
                 <span>Manga Folder</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
@@ -162,13 +158,13 @@ export function HeaderMenu() {
                     type="text"
                     value={mangaDir}
                     onChange={(e) => setMangaDir(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDir(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveDir();
+                    }}
                     className="w-full rounded bg-background border border-border px-2 py-1.5 text-xs text-foreground focus:outline-none focus:border-accent"
                     placeholder="/path/to/manga"
                   />
-                  {dirError && (
-                    <p className="mt-1 text-xs text-red-500">{dirError}</p>
-                  )}
+                  {dirError && <p className="mt-1 text-xs text-red-500">{dirError}</p>}
                   <div className="mt-2 flex gap-2">
                     <button
                       onClick={handleSaveDir}
@@ -194,7 +190,17 @@ export function HeaderMenu() {
                 className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors"
               >
                 <span>Panel Detection</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <rect x="3" y="3" width="18" height="18" rx="2" />
                   <line x1="3" y1="9" x2="21" y2="9" />
                   <line x1="9" y1="21" x2="9" y2="9" />
@@ -208,7 +214,17 @@ export function HeaderMenu() {
                 className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors"
               >
                 <span>Panel Jobs</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <polyline points="16 3 21 3 21 8" />
                   <line x1="4" y1="20" x2="21" y2="3" />
                   <polyline points="21 16 21 21 16 21" />
@@ -228,7 +244,17 @@ export function HeaderMenu() {
           >
             <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
             {theme === 'dark' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <circle cx="12" cy="12" r="5" />
                 <line x1="12" y1="1" x2="12" y2="3" />
                 <line x1="12" y1="21" x2="12" y2="23" />
@@ -240,7 +266,17 @@ export function HeaderMenu() {
                 <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
               </svg>
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}
@@ -252,7 +288,17 @@ export function HeaderMenu() {
             className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-b-lg disabled:opacity-50"
           >
             <span>{scanning ? 'Scanning...' : 'Rescan Library'}</span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>

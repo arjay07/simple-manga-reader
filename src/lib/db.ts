@@ -9,10 +9,7 @@ export function getDb(): Database.Database {
     return db;
   }
 
-  const dbPath = path.resolve(
-    process.cwd(),
-    process.env.DATABASE_PATH ?? 'data/manga-reader.db'
-  );
+  const dbPath = path.resolve(process.cwd(), process.env.DATABASE_PATH ?? 'data/manga-reader.db');
 
   const dbDir = path.dirname(dbPath);
   fs.mkdirSync(dbDir, { recursive: true });

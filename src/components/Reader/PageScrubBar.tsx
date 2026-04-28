@@ -41,7 +41,7 @@ export default function PageScrubBar({
       if (isRtl) ratio = 1 - ratio;
       return Math.max(1, Math.min(totalPages, Math.round(ratio * (totalPages - 1)) + 1));
     },
-    [totalPages, isRtl]
+    [totalPages, isRtl],
   );
 
   // Render thumbnail for a given page
@@ -86,7 +86,7 @@ export default function PageScrubBar({
         }
       }
     },
-    [pdfDocument]
+    [pdfDocument],
   );
 
   // Update thumbnail when hover page changes
@@ -108,7 +108,7 @@ export default function PageScrubBar({
       setHoverPage(page);
       setHoverX(e.clientX);
     },
-    [isDragging, pageFromX]
+    [isDragging, pageFromX],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -125,7 +125,7 @@ export default function PageScrubBar({
       const page = pageFromX(e.clientX);
       onPageChange(page);
     },
-    [isDragging, pageFromX, onPageChange]
+    [isDragging, pageFromX, onPageChange],
   );
 
   // Mouse drag
@@ -138,7 +138,7 @@ export default function PageScrubBar({
       setHoverPage(page);
       setHoverX(e.clientX);
     },
-    [pageFromX]
+    [pageFromX],
   );
 
   useEffect(() => {
@@ -176,7 +176,7 @@ export default function PageScrubBar({
       setHoverPage(page);
       setHoverX(touch.clientX);
     },
-    [pageFromX]
+    [pageFromX],
   );
 
   const handleTouchMove = useCallback(
@@ -188,7 +188,7 @@ export default function PageScrubBar({
       setHoverPage(page);
       setHoverX(touch.clientX);
     },
-    [pageFromX]
+    [pageFromX],
   );
 
   const handleTouchEnd = useCallback(
@@ -201,7 +201,7 @@ export default function PageScrubBar({
       setHoverPage(null);
       onPageChange(page);
     },
-    [pageFromX, onPageChange]
+    [pageFromX, onPageChange],
   );
 
   // Calculate tooltip position relative to the bar
@@ -238,11 +238,7 @@ export default function PageScrubBar({
             {thumbnailLoading || !thumbnailSrc ? (
               <div className="w-[120px] h-[170px] bg-white/10 animate-pulse" />
             ) : (
-              <img
-                src={thumbnailSrc}
-                alt={`Page ${hoverPage}`}
-                className="w-[120px] h-auto"
-              />
+              <img src={thumbnailSrc} alt={`Page ${hoverPage}`} className="w-[120px] h-auto" />
             )}
           </div>
           <span className="mt-1 px-2 py-0.5 rounded bg-black/90 text-white text-xs font-medium whitespace-nowrap">

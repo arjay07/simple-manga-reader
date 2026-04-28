@@ -72,9 +72,7 @@ export class CbzPageSource implements PageSource {
   async extractPage(pageNumber: number): Promise<Buffer> {
     const names = await this.loadEntryNames();
     if (pageNumber < 1 || pageNumber > names.length) {
-      throw new Error(
-        `Page ${pageNumber} out of range (archive has ${names.length} pages)`
-      );
+      throw new Error(`Page ${pageNumber} out of range (archive has ${names.length} pages)`);
     }
     const entryName = names[pageNumber - 1];
     return this.getZip().entryData(entryName);

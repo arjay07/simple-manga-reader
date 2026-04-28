@@ -1,31 +1,34 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
+import { getSeries } from '@/lib/db-queries';
+import { apiError, apiSuccess, parseJsonBody } from '@/lib/api-response';
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ seriesId: string }> }
+  { params }: { params: Promise<{ seriesId: string }> },
 ) {
   const { seriesId } = await params;
-  const db = getDb();
 
-  const series = db.prepare('SELECT id FROM series WHERE id = ?').get(seriesId);
-  if (!series) {
-    return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+  if (!getSeries(seriesId)) {
+    return apiError('Series not found', 404);
   }
 
-  const body = (await req.json()) as {
+  const body = await parseJsonBody<{
     description?: string;
     author?: string;
     mangadexId?: string;
-  };
+  }>(req);
+  if (!body) {
+    return apiError('Invalid JSON body', 400);
+  }
 
-  db.prepare(
-    'UPDATE series SET description = ?, author = ?, mangadex_id = ? WHERE id = ?'
-  ).run(body.description ?? null, body.author ?? null, body.mangadexId ?? null, seriesId);
+  const db = getDb();
+  db.prepare('UPDATE series SET description = ?, author = ?, mangadex_id = ? WHERE id = ?').run(
+    body.description ?? null,
+    body.author ?? null,
+    body.mangadexId ?? null,
+    seriesId,
+  );
 
-  const updated = db
-    .prepare('SELECT id, title, folder_name, cover_path, author, description, mangadex_id FROM series WHERE id = ?')
-    .get(seriesId);
-
-  return NextResponse.json(updated);
+  return apiSuccess(getSeries(seriesId));
 }

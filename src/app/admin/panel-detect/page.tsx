@@ -4,26 +4,14 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiUrl } from '@/lib/basePath';
 import { DetectionCanvas } from '@/components/DetectionCanvas';
-import type {
-  PanelDetectResponse,
-  Panel,
-} from '@/lib/panel-detect/types';
+import type { PanelDetectResponse, Panel } from '@/lib/panel-detect/types';
+import type { SeriesListItem, Volume as FullVolume } from '@/types';
 
-interface Series {
-  id: number;
-  title: string;
-  folder_name: string;
-  volume_count: number;
-}
-
-interface Volume {
-  id: number;
-  title: string;
-  filename: string;
-  volume_number: number | null;
-  page_count: number | null;
-  format: 'pdf' | 'cbz';
-}
+type Series = Pick<SeriesListItem, 'id' | 'title' | 'folder_name' | 'volume_count'>;
+type Volume = Pick<
+  FullVolume,
+  'id' | 'title' | 'filename' | 'volume_number' | 'page_count' | 'format'
+>;
 
 interface SeriesDetail {
   id: number;
@@ -33,7 +21,9 @@ interface SeriesDetail {
 
 export default function PanelDetectPageWrapper() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background text-foreground p-6">Loading...</div>}>
+    <Suspense
+      fallback={<div className="min-h-screen bg-background text-foreground p-6">Loading...</div>}
+    >
       <PanelDetectPage />
     </Suspense>
   );
@@ -63,19 +53,22 @@ function PanelDetectPage() {
   const shouldAutoAnalyze = useRef(!!urlSeries && !!urlVolume);
 
   // Sync state to URL query params
-  const updateUrl = useCallback((series: string, volume: string, page: number) => {
-    const params = new URLSearchParams();
-    if (series) params.set('series', series);
-    if (volume) params.set('volume', volume);
-    if (page > 1 || volume) params.set('page', String(page));
-    const qs = params.toString();
-    router.replace(`?${qs}`, { scroll: false });
-  }, [router]);
+  const updateUrl = useCallback(
+    (series: string, volume: string, page: number) => {
+      const params = new URLSearchParams();
+      if (series) params.set('series', series);
+      if (volume) params.set('volume', volume);
+      if (page > 1 || volume) params.set('page', String(page));
+      const qs = params.toString();
+      router.replace(`?${qs}`, { scroll: false });
+    },
+    [router],
+  );
 
   // Fetch series on mount
   useEffect(() => {
     fetch(apiUrl('/api/manga'))
-      .then(r => r.json())
+      .then((r) => r.json())
       .then(setSeriesList)
       .catch(() => setError('Failed to load series'));
   }, []);
@@ -88,7 +81,7 @@ function PanelDetectPage() {
       return;
     }
     fetch(apiUrl(`/api/manga/${selectedSeries}`))
-      .then(r => r.json())
+      .then((r) => r.json())
       .then((data: SeriesDetail) => {
         const vols = data.volumes ?? [];
         setVolumes(vols);
@@ -111,41 +104,44 @@ function PanelDetectPage() {
 
   // Update max page when volume changes
   useEffect(() => {
-    const vol = volumes.find(v => String(v.id) === selectedVolume);
+    const vol = volumes.find((v) => String(v.id) === selectedVolume);
     setMaxPage(vol?.page_count ?? null);
   }, [selectedVolume, volumes]);
 
   const analyzeRef = useRef<(overridePage?: number) => Promise<void>>(undefined);
 
-  const analyze = useCallback(async (overridePage?: number) => {
-    if (!selectedSeries || !selectedVolume) return;
-    const pg = overridePage ?? pageNum;
-    setLoading(true);
-    setError(null);
-    updateUrl(selectedSeries, selectedVolume, pg);
-    try {
-      const res = await fetch(apiUrl('/api/panel-detect'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seriesId: selectedSeries,
-          volumeId: selectedVolume,
-          page: pg,
-          confidenceThreshold: confidence,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error ?? 'Detection failed');
+  const analyze = useCallback(
+    async (overridePage?: number) => {
+      if (!selectedSeries || !selectedVolume) return;
+      const pg = overridePage ?? pageNum;
+      setLoading(true);
+      setError(null);
+      updateUrl(selectedSeries, selectedVolume, pg);
+      try {
+        const res = await fetch(apiUrl('/api/panel-detect'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            seriesId: selectedSeries,
+            volumeId: selectedVolume,
+            page: pg,
+            confidenceThreshold: confidence,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error ?? 'Detection failed');
+        }
+        const data: PanelDetectResponse = await res.json();
+        setResult(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+      } finally {
+        setLoading(false);
       }
-      const data: PanelDetectResponse = await res.json();
-      setResult(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedSeries, selectedVolume, pageNum, confidence, updateUrl]);
+    },
+    [selectedSeries, selectedVolume, pageNum, confidence, updateUrl],
+  );
 
   analyzeRef.current = analyze;
 
@@ -184,11 +180,14 @@ function PanelDetectPage() {
           <label className="text-sm text-muted">Series</label>
           <select
             value={selectedSeries}
-            onChange={e => { setSelectedSeries(e.target.value); updateUrl(e.target.value, '', 1); }}
+            onChange={(e) => {
+              setSelectedSeries(e.target.value);
+              updateUrl(e.target.value, '', 1);
+            }}
             className="bg-surface border border-border rounded px-3 py-2 text-sm min-w-[200px]"
           >
             <option value="">Select series...</option>
-            {seriesList.map(s => (
+            {seriesList.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.title} ({s.volume_count} vol)
               </option>
@@ -200,14 +199,18 @@ function PanelDetectPage() {
           <label className="text-sm text-muted">Volume</label>
           <select
             value={selectedVolume}
-            onChange={e => { setSelectedVolume(e.target.value); updateUrl(selectedSeries, e.target.value, 1); }}
+            onChange={(e) => {
+              setSelectedVolume(e.target.value);
+              updateUrl(selectedSeries, e.target.value, 1);
+            }}
             disabled={volumes.length === 0}
             className="bg-surface border border-border rounded px-3 py-2 text-sm min-w-[200px] disabled:opacity-50"
           >
             <option value="">Select volume...</option>
-            {volumes.map(v => (
+            {volumes.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.title}{v.page_count ? ` (${v.page_count}p)` : ''}
+                {v.title}
+                {v.page_count ? ` (${v.page_count}p)` : ''}
               </option>
             ))}
           </select>
@@ -228,7 +231,7 @@ function PanelDetectPage() {
               min={1}
               max={maxPage ?? undefined}
               value={pageNum}
-              onChange={e => setPageNum(Math.max(1, parseInt(e.target.value) || 1))}
+              onChange={(e) => setPageNum(Math.max(1, parseInt(e.target.value) || 1))}
               className="bg-surface border border-border rounded px-3 py-2 text-sm w-20 text-center"
             />
             <button
@@ -238,9 +241,7 @@ function PanelDetectPage() {
             >
               &rarr;
             </button>
-            {maxPage && (
-              <span className="text-sm text-muted">/ {maxPage}</span>
-            )}
+            {maxPage && <span className="text-sm text-muted">/ {maxPage}</span>}
           </div>
         </div>
 
@@ -262,7 +263,7 @@ function PanelDetectPage() {
           max={0.95}
           step={0.05}
           value={confidence}
-          onChange={e => setConfidence(parseFloat(e.target.value))}
+          onChange={(e) => setConfidence(parseFloat(e.target.value))}
           className="flex-1 max-w-[200px] accent-accent"
         />
         <span className="text-sm font-mono w-12 text-right">{confidence.toFixed(2)}</span>
@@ -320,10 +321,16 @@ function PanelDetectPage() {
                       <tr key={p.id} className="border-b border-border/50">
                         <td className="px-4 py-2 font-mono">{p.readingOrder}</td>
                         <td className="px-4 py-2 font-mono text-muted">{p.id}</td>
-                        <td className="px-4 py-2 font-mono">{p.x.toFixed(3)}, {p.y.toFixed(3)}</td>
-                        <td className="px-4 py-2 font-mono">{p.width.toFixed(3)}, {p.height.toFixed(3)}</td>
+                        <td className="px-4 py-2 font-mono">
+                          {p.x.toFixed(3)}, {p.y.toFixed(3)}
+                        </td>
+                        <td className="px-4 py-2 font-mono">
+                          {p.width.toFixed(3)}, {p.height.toFixed(3)}
+                        </td>
                         <td className="px-4 py-2">
-                          <span className={`font-mono ${p.confidence >= 0.7 ? 'text-green-400' : p.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          <span
+                            className={`font-mono ${p.confidence >= 0.7 ? 'text-green-400' : p.confidence >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}
+                          >
                             {p.confidence.toFixed(2)}
                           </span>
                         </td>
@@ -344,7 +351,10 @@ function PanelDetectPage() {
               <span className="font-medium">JSON Output</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={(e) => { e.stopPropagation(); copyJson(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyJson();
+                  }}
                   className="text-accent hover:text-accent-hover transition-colors"
                 >
                   {copied ? 'Copied!' : 'Copy'}
@@ -363,4 +373,3 @@ function PanelDetectPage() {
     </div>
   );
 }
-

@@ -7,9 +7,9 @@ import { getDb } from './db';
  */
 export function getCoverPath(seriesId: number | string): string | null {
   const db = getDb();
-  const series = db
-    .prepare('SELECT folder_name FROM series WHERE id = ?')
-    .get(seriesId) as { folder_name: string } | undefined;
+  const series = db.prepare('SELECT folder_name FROM series WHERE id = ?').get(seriesId) as
+    | { folder_name: string }
+    | undefined;
 
   if (!series) return null;
 

@@ -66,7 +66,7 @@ export default function PageSelectorDropdown({
       onPageChange(page);
       onClose();
     },
-    [onPageChange, onClose]
+    [onPageChange, onClose],
   );
 
   if (!open) return null;

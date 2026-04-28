@@ -40,14 +40,10 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-accent/20 p-4">
-            <span className="text-center text-sm font-medium text-foreground">
-              {title}
-            </span>
+            <span className="text-center text-sm font-medium text-foreground">{title}</span>
           </div>
         )}
-        {isAdmin && (
-          <SeriesCardMenu seriesId={id} onCoverUpdated={handleCoverUpdated} />
-        )}
+        {isAdmin && <SeriesCardMenu seriesId={id} onCoverUpdated={handleCoverUpdated} />}
       </div>
       <div className="p-2">
         <h3 className="truncate text-sm font-medium text-foreground">{title}</h3>

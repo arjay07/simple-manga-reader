@@ -33,7 +33,13 @@ interface GDriveDownloadModalProps {
   jobId: string | null;
 }
 
-export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, jobId }: GDriveDownloadModalProps) {
+export function GDriveDownloadModal({
+  open,
+  onClose,
+  onJobStarted,
+  onComplete,
+  jobId,
+}: GDriveDownloadModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const { state } = useGDriveProgress(jobId);
 
@@ -46,8 +52,10 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
   // Cancel confirmation
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const isActive = jobId && state.status !== 'done' && state.status !== 'cancelled' && state.status !== 'error';
-  const showForm = !jobId || state.status === 'done' || state.status === 'cancelled' || state.status === 'error';
+  const isActive =
+    jobId && state.status !== 'done' && state.status !== 'cancelled' && state.status !== 'error';
+  const showForm =
+    !jobId || state.status === 'done' || state.status === 'cancelled' || state.status === 'error';
 
   useEffect(() => {
     if (state.status === 'done') {
@@ -123,17 +131,36 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
     <div
       ref={backdropRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
+      onClick={(e) => {
+        if (e.target === backdropRef.current) onClose();
+      }}
     >
-      <div className="mx-4 w-full max-w-lg rounded-xl border border-border bg-surface shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="mx-4 w-full max-w-lg rounded-xl border border-border bg-surface shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold text-foreground">
             {showForm ? 'Add from Google Drive' : `Downloading: ${state.seriesName}`}
           </h2>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface-elevated hover:text-foreground transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted hover:bg-surface-elevated hover:text-foreground transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -169,7 +196,14 @@ export function GDriveDownloadModal({ open, onClose, onJobStarted, onComplete, j
 // --- Form View ---
 
 function FormView({
-  url, setUrl, seriesName, setSeriesName, formError, submitting, onSubmit, completedState,
+  url,
+  setUrl,
+  seriesName,
+  setSeriesName,
+  formError,
+  submitting,
+  onSubmit,
+  completedState,
 }: {
   url: string;
   setUrl: (v: string) => void;
@@ -184,7 +218,8 @@ function FormView({
     <>
       {completedState && (
         <div className="mb-4 rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3 text-sm text-green-600 dark:text-green-400">
-          Download complete! {completedState.totalFiles} files downloaded ({formatBytes(completedState.totalBytes)}) in {formatDuration(completedState.elapsed)}.
+          Download complete! {completedState.totalFiles} files downloaded (
+          {formatBytes(completedState.totalBytes)}) in {formatDuration(completedState.elapsed)}.
         </div>
       )}
       <form onSubmit={onSubmit} className="space-y-4">
@@ -214,9 +249,7 @@ function FormView({
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder-muted focus:border-accent focus:outline-none"
           />
         </div>
-        {formError && (
-          <p className="text-sm text-red-500">{formError}</p>
-        )}
+        {formError && <p className="text-sm text-red-500">{formError}</p>}
         <button
           type="submit"
           disabled={submitting}
@@ -232,7 +265,11 @@ function FormView({
 // --- Progress View ---
 
 function ProgressView({
-  state, onPauseResume, onCancel, confirmCancel, setConfirmCancel,
+  state,
+  onPauseResume,
+  onCancel,
+  confirmCancel,
+  setConfirmCancel,
 }: {
   state: GDriveProgressState;
   onPauseResume: () => void;
@@ -240,7 +277,9 @@ function ProgressView({
   confirmCancel: boolean;
   setConfirmCancel: (v: boolean) => void;
 }) {
-  const completedFiles = state.files.filter(f => f.status === 'complete' || f.status === 'skipped').length;
+  const completedFiles = state.files.filter(
+    (f) => f.status === 'complete' || f.status === 'skipped',
+  ).length;
   const totalFiles = state.files.length;
   const totalBytes = state.files.reduce((sum, f) => sum + f.size, 0);
   const downloadedBytes = state.files.reduce((sum, f) => sum + f.bytesDownloaded, 0);
@@ -316,7 +355,11 @@ function ProgressView({
 
 // --- File Row ---
 
-function FileRow({ file }: { file: { name: string; size: number; status: string; bytesDownloaded: number; error?: string } }) {
+function FileRow({
+  file,
+}: {
+  file: { name: string; size: number; status: string; bytesDownloaded: number; error?: string };
+}) {
   const percent = file.size > 0 ? Math.round((file.bytesDownloaded / file.size) * 100) : 0;
 
   return (
@@ -328,7 +371,8 @@ function FileRow({ file }: { file: { name: string; size: number; status: string;
         </div>
         <span className="flex-shrink-0 text-xs text-muted">
           {file.status === 'queued' && '\u2014'}
-          {file.status === 'downloading' && `${formatBytes(file.bytesDownloaded)} / ${formatBytes(file.size)}`}
+          {file.status === 'downloading' &&
+            `${formatBytes(file.bytesDownloaded)} / ${formatBytes(file.size)}`}
           {file.status === 'complete' && formatBytes(file.size)}
           {file.status === 'skipped' && `${formatBytes(file.size)} skipped`}
           {file.status === 'error' && 'failed'}
@@ -352,28 +396,76 @@ function FileRow({ file }: { file: { name: string; size: number; status: string;
 function StatusIcon({ status }: { status: string }) {
   if (status === 'complete') {
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-green-500">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="flex-shrink-0 text-green-500"
+      >
         <polyline points="20 6 9 17 4 12" />
       </svg>
     );
   }
   if (status === 'downloading') {
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-accent animate-pulse">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="flex-shrink-0 text-accent animate-pulse"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
     );
   }
   if (status === 'error') {
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-red-500">
-        <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="flex-shrink-0 text-red-500"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="15" y1="9" x2="9" y2="15" />
+        <line x1="9" y1="9" x2="15" y2="15" />
       </svg>
     );
   }
   if (status === 'skipped') {
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-muted">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="flex-shrink-0 text-muted"
+      >
         <polyline points="20 6 9 17 4 12" />
       </svg>
     );

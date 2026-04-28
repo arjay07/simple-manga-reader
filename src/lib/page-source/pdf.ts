@@ -29,13 +29,16 @@ export class PdfPageSource implements PageSource {
         'pdftoppm',
         [
           '-png',
-          '-f', String(pageNumber),
-          '-l', String(pageNumber),
-          '-r', String(dpi),
+          '-f',
+          String(pageNumber),
+          '-l',
+          String(pageNumber),
+          '-r',
+          String(dpi),
           '-singlefile',
           this.filePath,
         ],
-        { maxBuffer: 50 * 1024 * 1024 }
+        { maxBuffer: 50 * 1024 * 1024 },
       );
       return Buffer.from(result);
     }
@@ -48,11 +51,7 @@ export class PdfPageSource implements PageSource {
   }
 }
 
-async function extractWithMupdf(
-  pdfPath: string,
-  pageNumber: number,
-  dpi: number
-): Promise<Buffer> {
+async function extractWithMupdf(pdfPath: string, pageNumber: number, dpi: number): Promise<Buffer> {
   const mupdf = await import('mupdf');
   const fileData = fs.readFileSync(pdfPath);
   const doc = mupdf.Document.openDocument(fileData, 'application/pdf');

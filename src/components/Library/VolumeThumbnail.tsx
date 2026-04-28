@@ -15,9 +15,7 @@ export function VolumeThumbnail({ seriesId, volumeId, volumeNumber }: VolumeThum
   if (error) {
     return (
       <div className="flex aspect-[2/3] items-center justify-center rounded bg-surface-elevated mb-3">
-        <span className="text-2xl font-bold text-muted">
-          {volumeNumber ?? '#'}
-        </span>
+        <span className="text-2xl font-bold text-muted">{volumeNumber ?? '#'}</span>
       </div>
     );
   }

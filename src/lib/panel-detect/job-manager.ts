@@ -81,15 +81,23 @@ class JobManager {
     }
 
     const db = getDb();
-    const volume = db.prepare(
-      `SELECT v.id, v.page_count, v.title as volume_title, s.title as series_title, s.folder_name, v.filename, v.format
+    const volume = db
+      .prepare(
+        `SELECT v.id, v.page_count, v.title as volume_title, s.title as series_title, s.folder_name, v.filename, v.format
        FROM volumes v JOIN series s ON v.series_id = s.id
-       WHERE v.id = ?`
-    ).get(volumeId) as {
-      id: number; page_count: number | null;
-      volume_title: string; series_title: string;
-      folder_name: string; filename: string; format: Format;
-    } | undefined;
+       WHERE v.id = ?`,
+      )
+      .get(volumeId) as
+      | {
+          id: number;
+          page_count: number | null;
+          volume_title: string;
+          series_title: string;
+          folder_name: string;
+          filename: string;
+          format: Format;
+        }
+      | undefined;
 
     if (!volume) {
       throw new Error('Volume not found');
@@ -137,7 +145,7 @@ class JobManager {
     this.status = 'running';
 
     // Fire and forget — the loop runs in the background
-    this.processLoop(filePath, volume.format).catch(err => {
+    this.processLoop(filePath, volume.format).catch((err) => {
       console.error('Panel generation job fatal error:', err);
       this.error = err instanceof Error ? err.message : 'Unknown error';
       this.status = 'error';
@@ -180,7 +188,7 @@ class JobManager {
 
   private async waitIfPaused(): Promise<void> {
     while (this.paused && !this.cancelled) {
-      await new Promise<void>(resolve => {
+      await new Promise<void>((resolve) => {
         this.resumeResolve = resolve;
       });
     }
@@ -211,7 +219,7 @@ class JobManager {
         }
 
         // Yield to the event loop so HTTP requests aren't starved during inference
-        await new Promise<void>(resolve => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
         try {
           const start = Date.now();
@@ -227,7 +235,7 @@ class JobManager {
             readingTree,
             detection.pageType,
             processingTimeMs,
-            this.confidenceThreshold
+            this.confidenceThreshold,
           );
 
           this.processedPages++;

@@ -2,18 +2,13 @@ import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/db';
 import MangaReader from '@/components/Reader/MangaReader';
+import type { Volume } from '@/types';
 
-interface VolumeRow {
-  id: number;
-  series_id: number;
-  title: string;
-  filename: string;
-  volume_number: number | null;
-  format: 'pdf' | 'cbz';
+type VolumeRow = Volume & {
   series_title: string;
   reading_direction: string | null;
   reader_settings: string | null;
-}
+};
 
 export default async function ReaderPage({
   params,
@@ -32,7 +27,7 @@ export default async function ReaderPage({
        FROM volumes v
        JOIN series s ON s.id = v.series_id
        LEFT JOIN profiles p ON p.id = ?
-       WHERE v.series_id = ? AND v.id = ?`
+       WHERE v.series_id = ? AND v.id = ?`,
     )
     .get(profileId ?? 1, seriesId, volumeId) as VolumeRow | undefined;
 
@@ -41,21 +36,31 @@ export default async function ReaderPage({
   }
 
   // Query adjacent volumes for next/prev navigation
-  const nextVolume = volume.volume_number != null
-    ? (db.prepare(
-        `SELECT id, title, volume_number FROM volumes
+  const nextVolume =
+    volume.volume_number != null
+      ? (db
+          .prepare(
+            `SELECT id, title, volume_number FROM volumes
          WHERE series_id = ? AND volume_number > ?
-         ORDER BY volume_number LIMIT 1`
-      ).get(seriesId, volume.volume_number) as { id: number; title: string; volume_number: number } | undefined)
-    : undefined;
+         ORDER BY volume_number LIMIT 1`,
+          )
+          .get(seriesId, volume.volume_number) as
+          | { id: number; title: string; volume_number: number }
+          | undefined)
+      : undefined;
 
-  const prevVolume = volume.volume_number != null
-    ? (db.prepare(
-        `SELECT id, title, volume_number FROM volumes
+  const prevVolume =
+    volume.volume_number != null
+      ? (db
+          .prepare(
+            `SELECT id, title, volume_number FROM volumes
          WHERE series_id = ? AND volume_number < ?
-         ORDER BY volume_number DESC LIMIT 1`
-      ).get(seriesId, volume.volume_number) as { id: number; title: string; volume_number: number } | undefined)
-    : undefined;
+         ORDER BY volume_number DESC LIMIT 1`,
+          )
+          .get(seriesId, volume.volume_number) as
+          | { id: number; title: string; volume_number: number }
+          | undefined)
+      : undefined;
 
   let initialPage = 1;
   if (profileId) {

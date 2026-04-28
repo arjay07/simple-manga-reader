@@ -1,6 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
+import { STORAGE_KEYS } from '@/lib/constants';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 
 interface AdminContextType {
   isAdmin: boolean;
@@ -10,31 +12,16 @@ interface AdminContextType {
 const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
 export function AdminProvider({ children }: { children: ReactNode }) {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('admin-mode');
-    if (stored === 'true') {
-      setIsAdmin(true);
-    }
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    localStorage.setItem('admin-mode', String(isAdmin));
-  }, [isAdmin, mounted]);
+  const [isAdmin, setIsAdmin] = useLocalStorage<boolean>(STORAGE_KEYS.adminMode, false, {
+    serialize: (v) => String(v),
+    parse: (raw) => raw === 'true',
+  });
 
   const toggleAdmin = () => {
     setIsAdmin((prev) => !prev);
   };
 
-  return (
-    <AdminContext.Provider value={{ isAdmin, toggleAdmin }}>
-      {children}
-    </AdminContext.Provider>
-  );
+  return <AdminContext.Provider value={{ isAdmin, toggleAdmin }}>{children}</AdminContext.Provider>;
 }
 
 export function useAdmin(): AdminContextType {

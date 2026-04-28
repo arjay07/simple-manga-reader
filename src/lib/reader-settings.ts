@@ -15,7 +15,10 @@ export const READER_DEFAULTS: ReaderSettings = {
   verticalSnap: false,
 };
 
-export function parseReaderSettings(json: string | null | undefined, fallbackDirection?: string): ReaderSettings {
+export function parseReaderSettings(
+  json: string | null | undefined,
+  fallbackDirection?: string,
+): ReaderSettings {
   let parsed: Partial<ReaderSettings> = {};
   try {
     parsed = JSON.parse(json || '{}');

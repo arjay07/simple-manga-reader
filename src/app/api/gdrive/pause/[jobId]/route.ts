@@ -3,7 +3,7 @@ import { downloadManager } from '@/lib/gdrive/download-manager';
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ jobId: string }> }
+  { params }: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await params;
 

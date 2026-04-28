@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
+import { mimeTypeForFormat } from '@/lib/constants';
+import type { Format } from '@/lib/page-source/types';
 
 function streamToReadable(fileStream: fs.ReadStream): ReadableStream {
   return new ReadableStream({
@@ -25,19 +27,23 @@ function streamToReadable(fileStream: fs.ReadStream): ReadableStream {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ seriesId: string; volumeId: string }> }
+  { params }: { params: Promise<{ seriesId: string; volumeId: string }> },
 ) {
   try {
     const { seriesId, volumeId } = await params;
     const mangaDir = getMangaDir();
 
     const db = getDb();
-    const row = db.prepare(
-      `SELECT s.folder_name, v.filename, v.format
+    const row = db
+      .prepare(
+        `SELECT s.folder_name, v.filename, v.format
        FROM volumes v
        JOIN series s ON v.series_id = s.id
-       WHERE v.series_id = ? AND v.id = ?`
-    ).get(seriesId, volumeId) as { folder_name: string; filename: string; format: 'pdf' | 'cbz' } | undefined;
+       WHERE v.series_id = ? AND v.id = ?`,
+      )
+      .get(seriesId, volumeId) as
+      | { folder_name: string; filename: string; format: Format }
+      | undefined;
 
     if (!row) {
       return new Response('Volume not found', { status: 404 });
@@ -50,9 +56,7 @@ export async function GET(
     }
 
     const { size: fileSize } = fs.statSync(filePath);
-    const contentType = row.format === 'cbz'
-      ? 'application/vnd.comicbook+zip'
-      : 'application/pdf';
+    const contentType = mimeTypeForFormat(row.format);
     const commonHeaders = {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',

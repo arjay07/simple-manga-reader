@@ -10,7 +10,7 @@ import type { Format } from '@/lib/page-source';
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ volumeId: string; page: string }> }
+  { params }: { params: Promise<{ volumeId: string; page: string }> },
 ) {
   const { volumeId, page } = await params;
   const vid = Number(volumeId);
@@ -22,11 +22,13 @@ export async function GET(
   }
 
   const db = getDb();
-  const row = db.prepare(
-    `SELECT s.folder_name, v.filename, v.format
+  const row = db
+    .prepare(
+      `SELECT s.folder_name, v.filename, v.format
      FROM volumes v JOIN series s ON v.series_id = s.id
-     WHERE v.id = ?`
-  ).get(vid) as { folder_name: string; filename: string; format: Format } | undefined;
+     WHERE v.id = ?`,
+    )
+    .get(vid) as { folder_name: string; filename: string; format: Format } | undefined;
 
   if (!row) {
     return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
