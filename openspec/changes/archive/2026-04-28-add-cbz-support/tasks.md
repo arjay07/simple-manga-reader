@@ -46,13 +46,13 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Place a small test CBZ in `MANGA_DIR`, restart the dev server, confirm the scan logs the new volume with `format = 'cbz'`
-- [ ] 7.2 Confirm thumbnail generation succeeds for the CBZ volume in the library grid
-- [ ] 7.3 Open the CBZ volume in the reader and verify: page navigation, zoom, pan, vertical mode toggle, smart panel zoom, progress save/restore, prev/next-volume navigation
-- [ ] 7.4 Run a panel-detection job against the CBZ volume from `/admin/panel-jobs` and confirm pages are processed and saved with correct page count
-- [ ] 7.5 Open `/api/panel-detect/page-image?...` for the CBZ volume and confirm a valid base64 JPEG is returned with correct dimensions
-- [ ] 7.6 Confirm an existing PDF volume in the same library still opens and reads identically to before (no regression)
-- [ ] 7.7 Try a deliberately corrupt `.cbz` (e.g., an empty file renamed to `.cbz`) and confirm both the reader and the panel-detect path surface a clear error
+- [x] 7.1 Place a small test CBZ in `MANGA_DIR`, restart the dev server, confirm the scan logs the new volume with `format = 'cbz'`
+- [x] 7.2 Confirm thumbnail generation succeeds for the CBZ volume in the library grid
+- [x] 7.3 Open the CBZ volume in the reader and verify: page navigation, zoom, pan, vertical mode toggle, smart panel zoom, progress save/restore, prev/next-volume navigation
+- [x] 7.4 Run a panel-detection job against the CBZ volume from `/admin/panel-jobs` and confirm pages are processed and saved with correct page count
+- [x] 7.5 Open `/api/panel-detect/page-image?...` for the CBZ volume and confirm a valid base64 JPEG is returned with correct dimensions
+- [x] 7.6 Confirm an existing PDF volume in the same library still opens and reads identically to before (no regression)
+- [x] 7.7 Try a deliberately corrupt `.cbz` (e.g., an empty file renamed to `.cbz`) and confirm both the reader and the panel-detect path surface a clear error
 
 ## 8. Cleanup
 

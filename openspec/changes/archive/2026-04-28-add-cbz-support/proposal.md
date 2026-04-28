@@ -31,9 +31,11 @@ Out of scope: `.cbr` (RAR), `ComicInfo.xml` metadata ingestion, on-the-fly forma
 ## Capabilities
 
 ### New Capabilities
+
 - `cbz-archive-support`: End-to-end recognition and rendering of CBZ archives — scanner detection, format column, server-side page extraction, client-side reader rendering, natural-sort of entries, supported image types (jpg/jpeg/png/webp).
 
 ### Modified Capabilities
+
 - `panel-detection`: Page-image extraction must operate format-agnostically via the `PageSource` abstraction rather than calling PDF tools directly.
 - `panel-generation-jobs`: Page-count discovery and per-page iteration must work for both PDF and CBZ volumes through the same abstraction.
 

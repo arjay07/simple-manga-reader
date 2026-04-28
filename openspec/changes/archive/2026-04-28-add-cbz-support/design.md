@@ -42,8 +42,8 @@ DocumentSource {
 
 **Alternatives considered**
 
-- *Server-side per-page image route used by the reader.* Unifies the formats but throws away pdfjs's progressive/lazy rendering for PDFs and shifts CPU to the server. Keeping PDFs on pdfjs preserves a path we've already tuned (range requests, hi-res re-render, prerender).
-- *JSZip for both formats (decode PDF as binary on the client too).* No gain — pdfjs is purpose-built and already integrated.
+- _Server-side per-page image route used by the reader._ Unifies the formats but throws away pdfjs's progressive/lazy rendering for PDFs and shifts CPU to the server. Keeping PDFs on pdfjs preserves a path we've already tuned (range requests, hi-res re-render, prerender).
+- _JSZip for both formats (decode PDF as binary on the client too)._ No gain — pdfjs is purpose-built and already integrated.
 
 **Why this is fine**: the reader's logic above the render call (zoom, pan, cross-page morph, smart panel zoom, progress, prerender) operates on canvases and page numbers, not on `PDFDocumentProxy`. Wrapping pdfjs behind the interface is a small lift; CBZ becomes additive.
 
@@ -72,8 +72,8 @@ Consumers (`extractFirstPage`, `extractPageAsImage`, `JobManager.start`'s page-c
 
 **Alternatives considered**
 
-- *Branch on extension inside each consumer.* Three call sites multiply the duplication and leave the abstraction implicit. A typed interface keeps the contract honest and centralises future formats.
-- *`adm-zip` for server.* Synchronous, simpler API, but reads the whole archive into RAM. Manga CBZs run 50–300MB; on a server processing a queue, that adds up. `yauzl` streams.
+- _Branch on extension inside each consumer._ Three call sites multiply the duplication and leave the abstraction implicit. A typed interface keeps the contract honest and centralises future formats.
+- _`adm-zip` for server._ Synchronous, simpler API, but reads the whole archive into RAM. Manga CBZs run 50–300MB; on a server processing a queue, that adds up. `yauzl` streams.
 
 ### 3. Format detection: DB column populated by scanner
 
@@ -83,8 +83,8 @@ API responses (`/api/manga`, `/api/manga/[seriesId]`) include `format` so the cl
 
 **Alternatives considered**
 
-- *Sniff the extension on every read.* Workable but means the format check is duplicated in many spots; a column makes it cheap.
-- *Sniff magic bytes from the file.* Strictly more correct but unnecessary — manga files are almost universally named with the right extension, and a mis-named file would also break the user's local file manager.
+- _Sniff the extension on every read._ Workable but means the format check is duplicated in many spots; a column makes it cheap.
+- _Sniff magic bytes from the file._ Strictly more correct but unnecessary — manga files are almost universally named with the right extension, and a mis-named file would also break the user's local file manager.
 
 ### 4. Natural sort of CBZ entries
 
