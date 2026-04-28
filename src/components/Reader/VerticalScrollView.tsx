@@ -221,6 +221,7 @@ export default function VerticalScrollView({
   return (
     <div
       ref={containerRef}
+      data-reader-surface
       className="w-full h-full overflow-y-auto overflow-x-hidden"
       onTouchEnd={snapEnabled ? handleTouchEnd : undefined}
     >

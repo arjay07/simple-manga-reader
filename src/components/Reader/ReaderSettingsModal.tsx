@@ -62,6 +62,10 @@ export default function ReaderSettingsModal({
     onSettingsChange({ ...settings, tapToTurn: value });
   };
 
+  const setTapToAdvancePanel = (value: boolean) => {
+    onSettingsChange({ ...settings, tapToAdvancePanel: value });
+  };
+
   const setPageMode = (mode: PageMode) => {
     onSettingsChange({ ...settings, pageMode: mode });
   };
@@ -189,6 +193,33 @@ export default function ReaderSettingsModal({
                 />
               </button>
             </div>
+
+            {/* Tap to Advance Panel (nested under Smart Panel Zoom) */}
+            {smartPanelZoom && (
+              <div className="mt-3 pl-3 border-l border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-white/60 uppercase tracking-wide">
+                    Tap to Advance Panel
+                  </label>
+                  <button
+                    onClick={() => setTapToAdvancePanel(!settings.tapToAdvancePanel)}
+                    className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                      settings.tapToAdvancePanel ? 'bg-blue-500' : 'bg-white/20'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        settings.tapToAdvancePanel ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-xs text-white/40 mt-1">
+                  Tap anywhere to go to the next panel. Use the floating menu button to show
+                  controls; swipe back or use arrow keys to go back.
+                </p>
+              </div>
+            )}
 
             {/* Focus Mode (nested under Smart Panel Zoom) */}
             {smartPanelZoom && (

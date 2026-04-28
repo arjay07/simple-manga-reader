@@ -2469,6 +2469,9 @@ export default function MangaReader({
     (e: React.TouchEvent) => {
       if (isVertical) return;
       if (spreadMode) return;
+      // Only handle taps that started on the reading surface — taps on overlays
+      // (toolbar, modals, FABs, end-of-volume overlay, etc.) are not page taps.
+      if (!(e.target as HTMLElement | null)?.closest('[data-reader-surface]')) return;
 
       // Fresh gesture: clear the pinch-occurred-during-this-gesture flag.
       if (e.touches.length === 1) {
@@ -2793,6 +2796,10 @@ export default function MangaReader({
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
+      // Only handle taps that ended on the reading surface — taps on overlays
+      // (toolbar, modals, FABs, end-of-volume overlay, etc.) are not page taps.
+      if (!(e.target as HTMLElement | null)?.closest('[data-reader-surface]')) return;
+
       // Pinch end: one (or zero) fingers remain on a tracked pinch.
       if (pinchStateRef.current && e.touches.length < 2) {
         pinchStateRef.current = null;
@@ -2918,8 +2925,13 @@ export default function MangaReader({
         const tapX = touch.clientX;
         tapTimerRef.current = setTimeout(() => {
           tapTimerRef.current = null;
-          if (smartPanelZoom && hasPanelData) {
-            // Smart panel zoom: single tap always toggles toolbar
+          if (smartPanelZoom && hasPanelData && settings.tapToAdvancePanel) {
+            // Tap advances to the next panel/page; bars are reached via the
+            // floating menu button. Going back is handled by swipe/keyboard —
+            // tap is unidirectional to avoid LTR/RTL zone confusion.
+            navigateReading('forward');
+          } else if (smartPanelZoom && hasPanelData) {
+            // Smart panel zoom (default): single tap toggles toolbar
             setBarsVisible((v) => !v);
           } else if (isZoomedRef.current) {
             // While zoomed (non-panel): only toggle toolbar
@@ -3123,6 +3135,7 @@ export default function MangaReader({
       spreadMode,
       effectiveDirection,
       settings.tapToTurn,
+      settings.tapToAdvancePanel,
       navigateReading,
       springBack,
       applyZoomTransform,
@@ -3157,13 +3170,22 @@ export default function MangaReader({
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
       if (settingsModalOpen) return;
+      // Only handle clicks on the reading surface — clicks on overlays
+      // (toolbar, modals, FABs, end-of-volume overlay, etc.) are not page taps.
+      if (!(e.target as HTMLElement | null)?.closest('[data-reader-surface]')) return;
       // Suppress click if a touch gesture already handled this tap
       if (suppressNextClickRef.current) {
         suppressNextClickRef.current = false;
         return;
       }
 
-      // Smart panel zoom: click toggles bars (navigation handled by swipe/keyboard/wheel)
+      // Smart panel zoom + tapToAdvancePanel: click advances forward (bars via floating menu button)
+      if (smartPanelZoom && hasPanelData && !isVertical && settings.tapToAdvancePanel) {
+        navigateReading('forward');
+        return;
+      }
+
+      // Smart panel zoom (default): click toggles bars
       if (smartPanelZoom && hasPanelData && !isVertical) {
         setBarsVisible((v) => !v);
         return;
@@ -3190,6 +3212,7 @@ export default function MangaReader({
     },
     [
       settings.tapToTurn,
+      settings.tapToAdvancePanel,
       isVertical,
       effectiveDirection,
       settingsModalOpen,
@@ -3316,7 +3339,7 @@ export default function MangaReader({
         />
       ) : spreadMode ? (
         // Spread mode: two canvases side by side, unchanged
-        <div className="flex items-center justify-center w-full h-full">
+        <div data-reader-surface className="flex items-center justify-center w-full h-full">
           <div className="flex items-center justify-center h-full gap-0">
             <canvas ref={canvasRef} className="max-h-full" />
             <canvas ref={canvasRef2} className="max-h-full" />
@@ -3324,7 +3347,7 @@ export default function MangaReader({
         </div>
       ) : (
         // Single-page carousel strip
-        <div className="w-full h-full overflow-hidden">
+        <div data-reader-surface className="w-full h-full overflow-hidden">
           <div
             ref={stripRef}
             className="flex h-full"
@@ -3450,6 +3473,35 @@ export default function MangaReader({
             strokeLinejoin="round"
           >
             <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+      )}
+
+      {/* Toolbar drawer-handle tab — sticks out from the bottom of the top bar
+          like a notch. Replaces tap-to-toggle-bars when tap-to-advance is on,
+          since tapping the canvas advances panels instead. Sits at top-0 when
+          bars are hidden (still visible as a small tab) and slides down to the
+          toolbar's bottom edge when bars are shown. */}
+      {smartPanelZoom && hasPanelData && !isVertical && settings.tapToAdvancePanel && (
+        <button
+          onClick={() => setBarsVisible((v) => !v)}
+          className={`absolute left-1/2 -translate-x-1/2 z-40 px-4 py-1 flex items-center justify-center rounded-b-lg bg-black/80 backdrop-blur-sm text-white/40 hover:text-white/70 transition-all duration-300 ease-in-out cursor-pointer ${
+            barsVisible ? 'top-[44px]' : 'top-0'
+          }`}
+          aria-label={barsVisible ? 'Hide menu' : 'Show menu'}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`transition-transform duration-300 ${barsVisible ? 'rotate-180' : ''}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
           </svg>
         </button>
       )}

@@ -4,6 +4,7 @@ export type PageMode = 'single' | 'spread';
 export interface ReaderSettings {
   readingDirection: ReadingDirection;
   tapToTurn: boolean;
+  tapToAdvancePanel: boolean;
   pageMode: PageMode;
   verticalSnap: boolean;
 }
@@ -11,6 +12,7 @@ export interface ReaderSettings {
 export const READER_DEFAULTS: ReaderSettings = {
   readingDirection: 'rtl',
   tapToTurn: false,
+  tapToAdvancePanel: false,
   pageMode: 'single',
   verticalSnap: false,
 };
