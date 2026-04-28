@@ -83,18 +83,58 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
     for (const candidate of byTop) {
       if (assigned.has(candidate.id)) continue;
 
-      // How far apart are the top edges?
+      // Same-row criteria: a candidate joins the anchor's row if EITHER
+      // its top edge is close to the anchor's top (50% of the shorter
+      // height) OR it shares >= 40% of the shorter panel's vertical
+      // extent with the anchor. The vertical-overlap fallback handles
+      // the "short anchor + taller candidate that starts slightly lower"
+      // case where the top-edge rule fails by a hair (anchor too short
+      // to allow even a small Y offset).
       const topDiff = Math.abs(candidate.y - anchorTop);
-
-      // Use the shorter panel's height as the reference for "same row"
       const refHeight = Math.min(minHeight, candidate.height);
+      const topDiffOK = topDiff <= refHeight * 0.5;
 
-      // Panels are in the same row if their tops are within 50% of the
-      // shorter panel's height
-      if (topDiff <= refHeight * 0.5) {
-        row.push(candidate);
-        assigned.add(candidate.id);
-        minHeight = Math.min(minHeight, candidate.height);
+      const vertOverlapAnchor =
+        Math.min(panel.y + panel.height, candidate.y + candidate.height) -
+        Math.max(panel.y, candidate.y);
+      const vertFractionShorter =
+        Math.max(0, vertOverlapAnchor) /
+        Math.min(panel.height, candidate.height);
+      const vertOverlapOK = vertFractionShorter >= 0.4;
+
+      if (topDiffOK || vertOverlapOK) {
+        // Reject candidates that substantially overlap a row member
+        // horizontally AND have weak vertical alignment with that
+        // member — that combination indicates the pair is stacked
+        // vertically (e.g. a full-width bottom strip near a right-side
+        // panel above it). Loose bounding boxes can produce >50%
+        // horizontal overlap on genuine side-by-side panels too, so
+        // the vertical-alignment guard distinguishes the two.
+        let horizConflict = false;
+        for (const member of row) {
+          const horizOverlap =
+            Math.min(candidate.x + candidate.width, member.x + member.width) -
+            Math.max(candidate.x, member.x);
+          const horizFraction =
+            Math.max(0, horizOverlap) / Math.min(candidate.width, member.width);
+          if (horizFraction > 0.5) {
+            const memberVertOverlap =
+              Math.min(candidate.y + candidate.height, member.y + member.height) -
+              Math.max(candidate.y, member.y);
+            const memberVertFractionTaller =
+              Math.max(0, memberVertOverlap) /
+              Math.max(candidate.height, member.height);
+            if (memberVertFractionTaller <= 0.7) {
+              horizConflict = true;
+              break;
+            }
+          }
+        }
+        if (!horizConflict) {
+          row.push(candidate);
+          assigned.add(candidate.id);
+          minHeight = Math.min(minHeight, candidate.height);
+        }
       }
     }
 
@@ -130,7 +170,13 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
         let targetRow = -1;
         for (let j = i + 1; j < rows.length; j++) {
           for (const laterPanel of rows[j]) {
-            if (panelBottom > laterPanel.y + laterPanel.height * 0.3) {
+            // Require the deferred panel to span at least 60% of the
+            // laterPanel's vertical range. A weaker threshold (e.g. 30%)
+            // wrongly defers shorter top panels past taller right-column
+            // panels they don't actually frame — the deferred panel must
+            // visually "frame" the laterPanel for the deferral to make
+            // sense as a manga reading-order rearrangement.
+            if (panelBottom > laterPanel.y + laterPanel.height * 0.6) {
               const laterCenterX = laterPanel.x + laterPanel.width / 2;
               // Horizontal overlap: if high, panels are stacked vertically,
               // not side-by-side — skip deferral.
