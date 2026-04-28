@@ -26,6 +26,67 @@ interface PanelDataResponse {
   isComplete: boolean;
 }
 
+// Single source of truth for panel zoom geometry. Decides single-stop vs multi-stop,
+// the zoom level, and the inset panel rect (px/py/pw/ph after adaptive margins).
+// Callers pass viewport (vW, vH) and canvas (cw, ch) dims so this is pure / refless.
+function computeStopGeometry(
+  panel: Panel,
+  vW: number,
+  vH: number,
+  cw: number,
+  ch: number,
+): { stopCount: number; zoom: number; px: number; py: number; pw: number; ph: number } {
+  const marginX = panel.width * 0.08 * (1 - panel.width);
+  const marginY = panel.height * 0.08 * (1 - panel.height);
+  const px = Math.max(0, panel.x - marginX);
+  const py = Math.max(0, panel.y - marginY);
+  const pw = Math.min(1 - px, panel.width + marginX * 2);
+  const ph = Math.min(1 - py, panel.height + marginY * 2);
+
+  const pad = 0.95;
+  const scaleX = (vW * pad) / (pw * cw);
+  const scaleY = (vH * pad) / (ph * ch);
+  const fitZoom = Math.min(scaleX, scaleY, 5);
+  const heightZoom = Math.min(scaleY, 5);
+
+  // Single-stop iff the panel renders tall enough at fitZoom to be readable;
+  // otherwise it's a wide/short strip that reads better split into horizontal stops at heightZoom.
+  const MIN_SINGLE_STOP_HEIGHT_RATIO = 2 / 7;
+  const panelHeightAtFit = ph * ch * fitZoom;
+  if (panelHeightAtFit >= vH * MIN_SINGLE_STOP_HEIGHT_RATIO) {
+    return { stopCount: 1, zoom: fitZoom, px, py, pw, ph };
+  }
+
+  // Cap multi-stop zoom at 3.5x — full height-fit can be 7-8x for thin strips,
+  // which over-zooms past readability and creates too many stops.
+  const multiStopZoom = Math.min(heightZoom, 3.5);
+  const overlapFactor = 0.85;
+  const stride = vW * overlapFactor;
+  const panelWidthAtZoom = pw * cw * multiStopZoom;
+  // The first stop covers a full viewport width; each additional stop advances
+  // by stride. So stops = ceil((panelWidth - vW) / stride) + 1.
+  const rawStops = Math.max(1, Math.ceil((panelWidthAtZoom - vW) / stride) + 1);
+  // Ensure each stop moves at least 35% of viewport width — otherwise the
+  // movement feels negligible and the extra stop is wasted.
+  const minStride = vW * 0.35;
+  let effectiveStops = rawStops;
+  while (effectiveStops > 1 && (panelWidthAtZoom - vW) / (effectiveStops - 1) < minStride) {
+    effectiveStops--;
+  }
+  if (effectiveStops <= 1) {
+    return { stopCount: 1, zoom: fitZoom, px, py, pw, ph };
+  }
+  // Allow up to 4 stops for panels where fitZoom is too low (< 1.5x),
+  // otherwise cap at 3 to avoid excessive panning on moderately wide panels.
+  const maxStops = fitZoom < 1.5 ? 4 : 3;
+  if (rawStops > maxStops) {
+    // N stops cover (N-1)*stride + vW pixels total
+    const reducedZoom = ((maxStops - 1) * stride + vW) / (pw * cw);
+    return { stopCount: maxStops, zoom: Math.min(reducedZoom, 3.5), px, py, pw, ph };
+  }
+  return { stopCount: Math.min(effectiveStops, maxStops), zoom: multiStopZoom, px, py, pw, ph };
+}
+
 interface MangaReaderProps {
   seriesId: string;
   volumeId: string;
@@ -1190,64 +1251,8 @@ export default function MangaReader({
     const ch = parseFloat(canvas.style.height) || 0;
     if (cw === 0 || ch === 0) return { stopCount: 1, zoom: 1 };
 
-    // Adaptive margins (same as zoomToPanel)
-    const marginX = panel.width * 0.08 * (1 - panel.width);
-    const marginY = panel.height * 0.08 * (1 - panel.height);
-    const px = Math.max(0, panel.x - marginX);
-    const py = Math.max(0, panel.y - marginY);
-    const pw = Math.min(1 - px, panel.width + marginX * 2);
-    const ph = Math.min(1 - py, panel.height + marginY * 2);
-
-    const pad = 0.95;
-    const scaleX = (vW * pad) / (pw * cw);
-    const scaleY = (vH * pad) / (ph * ch);
-    const fitZoom = Math.min(scaleX, scaleY, 5);
-    const heightZoom = Math.min(scaleY, 5);
-
-    // Multi-stop triggers when the panel is dramatically wider than the viewport (ratio > 5),
-    // OR when the panel is wide enough (ratio > 3) that fitZoom can't zoom in adequately (< 1.5x).
-    // The second condition catches full-width panels on portrait phones where fitZoom ≈ 1.
-    const panelAspect = pw / ph;
-    const viewportAspect = vW / vH;
-    const aspectRatio = panelAspect / viewportAspect;
-    if (aspectRatio <= 5 && (fitZoom >= 1.5 || aspectRatio <= 3)) {
-      return { stopCount: 1, zoom: fitZoom };
-    }
-
-    // Cap multi-stop zoom at 3.5x — full height-fit can be 7-8x for thin strips,
-    // which over-zooms past readability and creates too many stops.
-    const multiStopZoom = Math.min(heightZoom, 3.5);
-
-    const panelWidthAtZoom = pw * cw * multiStopZoom;
-    const overlapFactor = 0.85;
-    // The first stop covers a full viewport width; each additional stop advances
-    // by stride. So stops = ceil((panelWidth - vW) / stride) + 1.
-    const stride = vW * overlapFactor;
-    const rawStops = Math.max(1, Math.ceil((panelWidthAtZoom - vW) / stride) + 1);
-
-    // Ensure each stop moves at least 35% of viewport width — otherwise the
-    // movement feels negligible and the extra stop is wasted.
-    const minStride = vW * 0.35;
-    let effectiveStops = rawStops;
-    while (effectiveStops > 1 && (panelWidthAtZoom - vW) / (effectiveStops - 1) < minStride) {
-      effectiveStops--;
-    }
-
-    if (effectiveStops <= 1) {
-      return { stopCount: 1, zoom: fitZoom };
-    }
-
-    // Allow up to 4 stops for panels where fitZoom is too low (< 1.5x),
-    // otherwise cap at 3 to avoid excessive panning on moderately wide panels.
-    const maxStops = fitZoom < 1.5 ? 4 : 3;
-    const stops = Math.min(effectiveStops, maxStops);
-    if (rawStops > maxStops) {
-      // N stops cover (N-1)*stride + vW pixels total
-      const reducedZoom = ((maxStops - 1) * stride + vW) / (pw * cw);
-      return { stopCount: maxStops, zoom: Math.min(reducedZoom, 3.5) };
-    }
-
-    return { stopCount: stops, zoom: multiStopZoom };
+    const { stopCount, zoom } = computeStopGeometry(panel, vW, vH, cw, ch);
+    return { stopCount, zoom };
   }, []);
 
   // Compute the panX value for each stop of a multi-stop panel.
@@ -1319,42 +1324,8 @@ export default function MangaReader({
     const ch = parseFloat(canvas.style.height) || 0;
     if (cw === 0 || ch === 0) return null;
 
-    const marginX = panel.width * 0.08 * (1 - panel.width);
-    const marginY = panel.height * 0.08 * (1 - panel.height);
-    const px = Math.max(0, panel.x - marginX);
-    const py = Math.max(0, panel.y - marginY);
-    const pw = Math.min(1 - px, panel.width + marginX * 2);
-    const ph = Math.min(1 - py, panel.height + marginY * 2);
-
-    const pad = 0.95;
-    const scaleX = (vW * pad) / (pw * cw);
-    const scaleY = (vH * pad) / (ph * ch);
-    const fitZoom = Math.min(scaleX, scaleY, 5);
-    const heightZoom = Math.min(scaleY, 5);
-    const overlapFactor = 0.85;
-
-    const panelAspect = pw / ph;
-    const viewportAspect = vW / vH;
-    let finalZoom: number;
-    let finalStopCount: number;
-
-    const aspectRatio = panelAspect / viewportAspect;
-    if (aspectRatio <= 5 && (fitZoom >= 1.5 || aspectRatio <= 3)) {
-      finalZoom = fitZoom;
-      finalStopCount = 1;
-    } else {
-      const multiZoom = Math.min(heightZoom, 3.5);
-      const panelWidthAtZoom = pw * cw * multiZoom;
-      const stride = vW * overlapFactor;
-      const rawStops = Math.max(1, Math.ceil((panelWidthAtZoom - vW) / stride) + 1);
-      const minStride = vW * 0.35;
-      let effStops = rawStops;
-      while (effStops > 1 && (panelWidthAtZoom - vW) / (effStops - 1) < minStride) effStops--;
-      const maxStops = fitZoom < 1.5 ? 4 : 3;
-      if (effStops <= 1) { finalZoom = fitZoom; finalStopCount = 1; }
-      else if (effStops <= maxStops) { finalZoom = multiZoom; finalStopCount = effStops; }
-      else { finalStopCount = maxStops; finalZoom = Math.min(((maxStops - 1) * stride + vW) / (pw * cw), 3.5); }
-    }
+    const { stopCount: finalStopCount, zoom: finalZoom, px, py, pw, ph } =
+      computeStopGeometry(panel, vW, vH, cw, ch);
 
     const natLeft = (vW - cw) / 2;
     const natTop = (vH - ch) / 2;
@@ -1496,34 +1467,9 @@ export default function MangaReader({
     const baseViewport = page.getViewport({ scale: 1 });
     const baseScale = Math.min(vW / baseViewport.width, vH / baseViewport.height);
 
-    const pad = 0.95;
     const cssCw = baseViewport.width * baseScale;
     const cssCh = baseViewport.height * baseScale;
-    const scaleXVal = (vW * pad) / (pw * cssCw);
-    const scaleYVal = (vH * pad) / (ph * cssCh);
-    const fitZoom = Math.min(scaleXVal, scaleYVal, 5);
-    const heightZoom = Math.min(scaleYVal, 5);
-
-    const overlapFactor = 0.85;
-    const panelAspect = pw / ph;
-    const viewportAspect = vW / vH;
-    const aspectRatio = panelAspect / viewportAspect;
-    let preZoom: number;
-    if (aspectRatio <= 5 && (fitZoom >= 1.5 || aspectRatio <= 3)) {
-      preZoom = fitZoom;
-    } else {
-      const multiZoom = Math.min(heightZoom, 3.5);
-      const pWidthAtZoom = pw * cssCw * multiZoom;
-      const stride = vW * overlapFactor;
-      const rawStops = Math.max(1, Math.ceil((pWidthAtZoom - vW) / stride) + 1);
-      const minStride = vW * 0.35;
-      let effStops = rawStops;
-      while (effStops > 1 && (pWidthAtZoom - vW) / (effStops - 1) < minStride) effStops--;
-      const maxStops = fitZoom < 1.5 ? 4 : 3;
-      if (effStops <= 1) { preZoom = fitZoom; }
-      else if (effStops <= maxStops) { preZoom = multiZoom; }
-      else { preZoom = Math.min(((maxStops - 1) * stride + vW) / (pw * cssCw), 3.5); }
-    }
+    const { zoom: preZoom } = computeStopGeometry(targetPanel, vW, vH, cssCw, cssCh);
 
     const hiResScale = Math.min(preZoom, 4);
     const renderScale = baseScale * dpr * hiResScale;
@@ -1556,28 +1502,7 @@ export default function MangaReader({
     const ox = (px + pw / 2) * newCw;
     const oy = (py + ph / 2) * newCh;
 
-    const fScaleX = (vW * pad) / (pw * newCw);
-    const fScaleY = (vH * pad) / (ph * newCh);
-    const fFitZoom = Math.min(fScaleX, fScaleY, 5);
-    const fHeightZoom = Math.min(fScaleY, 5);
-    let fZoom: number;
-    let fStopCount: number;
-    const fAspectRatio = (pw / ph) / (vW / vH);
-    if (fAspectRatio <= 5 && (fFitZoom >= 1.5 || fAspectRatio <= 3)) {
-      fZoom = fFitZoom; fStopCount = 1;
-    } else {
-      const fMultiZoom = Math.min(fHeightZoom, 3.5);
-      const fPanelWidthAtZoom = pw * newCw * fMultiZoom;
-      const fStride = vW * overlapFactor;
-      const fRawStops = Math.max(1, Math.ceil((fPanelWidthAtZoom - vW) / fStride) + 1);
-      const fMinStride = vW * 0.35;
-      let fEffStops = fRawStops;
-      while (fEffStops > 1 && (fPanelWidthAtZoom - vW) / (fEffStops - 1) < fMinStride) fEffStops--;
-      const fMaxStops = fFitZoom < 1.5 ? 4 : 3;
-      if (fEffStops <= 1) { fZoom = fFitZoom; fStopCount = 1; }
-      else if (fEffStops <= fMaxStops) { fZoom = fMultiZoom; fStopCount = fEffStops; }
-      else { fStopCount = fMaxStops; fZoom = Math.min(((fMaxStops - 1) * fStride + vW) / (pw * newCw), 3.5); }
-    }
+    const { stopCount: fStopCount, zoom: fZoom } = computeStopGeometry(targetPanel, vW, vH, newCw, newCh);
 
     const natLeft = (vW - newCw) / 2;
     const natTop = (vH - newCh) / 2;
