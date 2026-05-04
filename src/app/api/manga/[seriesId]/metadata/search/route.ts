@@ -3,7 +3,7 @@ import { getDb } from '@/lib/db';
 import { searchManga } from '@/lib/mangadex';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ seriesId: string }> },
 ) {
   const { seriesId } = await params;
@@ -17,8 +17,11 @@ export async function GET(
     return NextResponse.json({ error: 'Series not found' }, { status: 404 });
   }
 
+  const overrideTitle = req.nextUrl.searchParams.get('title')?.trim();
+  const query = overrideTitle && overrideTitle.length > 0 ? overrideTitle : series.title;
+
   try {
-    const candidates = await searchManga(series.title);
+    const candidates = await searchManga(query);
     return NextResponse.json({ candidates });
   } catch (error) {
     console.error('MangaDex search failed:', error);

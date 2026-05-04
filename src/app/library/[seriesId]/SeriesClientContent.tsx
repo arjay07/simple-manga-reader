@@ -31,7 +31,9 @@ export function SeriesClientContent({
 
   const [series, setSeries] = useState(initialSeries);
   const [deleting, setDeleting] = useState(false);
-  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [searchTitle, setSearchTitle] = useState(initialSeries.title);
+  const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [candidates, setCandidates] = useState<MetadataCandidate[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -51,28 +53,37 @@ export function SeriesClientContent({
     }
   }
 
-  async function handleFetchMetadata() {
-    setFetchState('loading');
+  async function runSearch(title: string) {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setSearching(true);
     setErrorMsg('');
+    setCandidates([]);
     try {
-      const res = await fetch(apiUrl(`/api/manga/${series.id}/metadata/search`));
+      const res = await fetch(
+        apiUrl(`/api/manga/${series.id}/metadata/search?title=${encodeURIComponent(trimmed)}`),
+      );
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? 'Search failed');
       }
       const data = (await res.json()) as { candidates: MetadataCandidate[] };
-      if (data.candidates.length === 0) {
-        setFetchState('error');
-        setErrorMsg('No matches found on MangaDex for this series title.');
-        return;
-      }
       setCandidates(data.candidates);
       setSelectedIndex(0);
-      setFetchState('idle');
+      if (data.candidates.length === 0) {
+        setErrorMsg('No matches found on MangaDex for this title. Try editing it above.');
+      }
     } catch (err) {
-      setFetchState('error');
       setErrorMsg(err instanceof Error ? err.message : 'Failed to reach MangaDex.');
+    } finally {
+      setSearching(false);
     }
+  }
+
+  function handleOpenModal() {
+    setModalOpen(true);
+    setSearchTitle(series.title);
+    runSearch(series.title);
   }
 
   async function handleConfirm() {
@@ -91,7 +102,7 @@ export function SeriesClientContent({
       if (!res.ok) throw new Error('Save failed');
       const updated = (await res.json()) as Series;
       setSeries(updated);
-      setCandidates([]);
+      handleDismiss();
     } catch {
       setErrorMsg('Failed to save metadata. Please try again.');
     } finally {
@@ -100,8 +111,8 @@ export function SeriesClientContent({
   }
 
   function handleDismiss() {
+    setModalOpen(false);
     setCandidates([]);
-    setFetchState('idle');
     setErrorMsg('');
   }
 
@@ -136,11 +147,11 @@ export function SeriesClientContent({
           {isAdmin && (
             <div className="mt-4 flex items-center gap-2">
               <button
-                onClick={handleFetchMetadata}
-                disabled={fetchState === 'loading'}
+                onClick={handleOpenModal}
+                disabled={modalOpen}
                 className="rounded-md bg-surface px-3 py-1.5 text-sm text-foreground border border-border hover:bg-border transition-colors disabled:opacity-50"
               >
-                {fetchState === 'loading' ? 'Searching…' : 'Fetch Metadata'}
+                Fetch Metadata
               </button>
               <button
                 onClick={handleDelete}
@@ -149,25 +160,52 @@ export function SeriesClientContent({
               >
                 {deleting ? 'Deleting…' : 'Delete Series'}
               </button>
-              {fetchState === 'error' && <p className="text-sm text-red-500">{errorMsg}</p>}
             </div>
           )}
         </div>
       </div>
 
       {/* Candidate selection modal */}
-      {candidates.length > 0 && (
+      {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-xl rounded-xl bg-surface shadow-xl border border-border flex flex-col max-h-[90vh]">
             <div className="p-6 pb-4 border-b border-border shrink-0">
-              <h2 className="text-lg font-semibold text-foreground">Select a Match</h2>
+              <h2 className="text-lg font-semibold text-foreground">Search MangaDex</h2>
               <p className="mt-1 text-sm text-muted">
-                {candidates.length} result{candidates.length !== 1 ? 's' : ''} from MangaDex — pick
-                the correct one.
+                Edit the title if it&apos;s wrong, then pick the matching entry.
               </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  runSearch(searchTitle);
+                }}
+                className="mt-3 flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={searchTitle}
+                  onChange={(e) => setSearchTitle(e.target.value)}
+                  disabled={searching || saving}
+                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-foreground disabled:opacity-50"
+                  placeholder="Series title"
+                />
+                <button
+                  type="submit"
+                  disabled={searching || saving || !searchTitle.trim()}
+                  className="rounded-md bg-foreground px-3 py-1.5 text-sm text-background hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {searching ? 'Searching…' : 'Search'}
+                </button>
+              </form>
             </div>
 
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {searching && candidates.length === 0 && (
+                <p className="px-2 py-4 text-sm text-muted">Searching MangaDex…</p>
+              )}
+              {!searching && candidates.length === 0 && !errorMsg && (
+                <p className="px-2 py-4 text-sm text-muted">No results yet.</p>
+              )}
               {candidates.map((c, i) => (
                 <button
                   key={c.mangadexId}
@@ -199,7 +237,7 @@ export function SeriesClientContent({
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={saving}
+                disabled={saving || !selectedCandidate}
                 className="rounded-md bg-foreground px-4 py-2 text-sm text-background hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Save Metadata'}

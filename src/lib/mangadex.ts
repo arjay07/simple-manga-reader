@@ -41,6 +41,9 @@ export async function searchManga(title: string): Promise<MangaDexCandidate[]> {
     limit: '5',
     'includes[]': 'author',
     'availableTranslatedLanguage[]': 'en',
+    // Without this, MangaDex defaults to ordering by latestUploadedChapter,
+    // which buries canonical entries for completed series behind active doujinshi/spinoffs.
+    'order[relevance]': 'desc',
   });
 
   const res = await fetch(`https://api.mangadex.org/manga?${params}`, {
