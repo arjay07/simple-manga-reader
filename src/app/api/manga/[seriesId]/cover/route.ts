@@ -4,8 +4,7 @@ import { getDb } from '@/lib/db';
 import { getCoverPath, saveCover } from '@/lib/covers';
 import { ensureCoversDir } from '@/lib/pdf-utils';
 import { parseJsonBody } from '@/lib/api-response';
-
-const MAX_URL_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+import { downloadImageFromUrl } from '@/lib/cover-download';
 
 export async function GET(
   _request: NextRequest,
@@ -63,38 +62,12 @@ export async function POST(
         return NextResponse.json({ error: 'URL is required' }, { status: 400 });
       }
 
-      // Validate scheme
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        return NextResponse.json(
-          { error: 'Only http and https URLs are allowed' },
-          { status: 400 },
-        );
+      const result = await downloadImageFromUrl(url);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
       }
 
-      const response = await fetch(url);
-      if (!response.ok) {
-        return NextResponse.json(
-          { error: `Failed to download image: ${response.status}` },
-          { status: 400 },
-        );
-      }
-
-      const remoteContentType = response.headers.get('content-type') ?? '';
-      if (!remoteContentType.startsWith('image/')) {
-        return NextResponse.json({ error: 'URL does not point to an image' }, { status: 400 });
-      }
-
-      const contentLength = response.headers.get('content-length');
-      if (contentLength && parseInt(contentLength) > MAX_URL_DOWNLOAD_SIZE) {
-        return NextResponse.json({ error: 'Image exceeds 10MB size limit' }, { status: 400 });
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength > MAX_URL_DOWNLOAD_SIZE) {
-        return NextResponse.json({ error: 'Image exceeds 10MB size limit' }, { status: 400 });
-      }
-
-      saveCover(seriesId, series.folder_name, Buffer.from(arrayBuffer));
+      saveCover(seriesId, series.folder_name, result.buffer);
       return NextResponse.json({ success: true });
     }
 

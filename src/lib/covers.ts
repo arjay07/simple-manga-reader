@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { getSeriesCoverPath, ensureCoversDir } from './pdf-utils';
+import { getSeriesCoverPath, getVolumeCoverPath, ensureCoversDir } from './pdf-utils';
 import { getDb } from './db';
 
 /**
@@ -31,4 +31,11 @@ export function saveCover(seriesId: number | string, folderName: string, buffer:
 
   const db = getDb();
   db.prepare('UPDATE series SET cover_path = ? WHERE id = ?').run(coverPath, seriesId);
+}
+
+// Writes to the manual-override path (vol-<filename>.cover.jpg), NOT the page-1 thumbnail.
+export function saveVolumeCover(folderName: string, volumeFilename: string, buffer: Buffer): void {
+  ensureCoversDir(folderName);
+  const coverPath = getVolumeCoverPath(folderName, volumeFilename);
+  fs.writeFileSync(coverPath, buffer);
 }

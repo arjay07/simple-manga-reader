@@ -12,6 +12,7 @@ interface SeriesRow {
   title: string;
   folder_name: string;
   cover_path: string | null;
+  mangadex_id: string | null;
   volume_count: number;
 }
 
@@ -78,6 +79,7 @@ export default function LibraryPage() {
                 title={s.title}
                 coverPath={s.cover_path}
                 volumeCount={s.volume_count}
+                mangadexId={s.mangadex_id}
               />
             ))}
           </div>

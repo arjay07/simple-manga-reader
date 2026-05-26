@@ -1,27 +1,58 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiUrl } from '@/lib/basePath';
 
-interface SeriesCardMenuProps {
-  seriesId: number;
-  onCoverUpdated: () => void;
-}
+export type CoverMenuProps =
+  | { target: 'series'; seriesId: number; mangadexId: string | null; onUpdated: () => void }
+  | {
+      target: 'volume';
+      seriesId: number;
+      volumeId: number;
+      mangadexId: string | null;
+      onUpdated: () => void;
+    };
 
-export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps) {
+export function CoverMenu(props: CoverMenuProps) {
+  const { mangadexId, onUpdated } = props;
+  const baseUrl =
+    props.target === 'series'
+      ? `/api/manga/${props.seriesId}/cover`
+      : `/api/manga/${props.seriesId}/${props.volumeId}/cover`;
+  const webDisabled = mangadexId == null;
+
   const [open, setOpen] = useState(false);
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Panel is rendered via portal to escape overflow-hidden ancestors (volume tile, series card).
+  // Coords are page-absolute (include scroll offsets) so the panel stays anchored as the user scrolls.
+  const [panelCoords, setPanelCoords] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setPanelCoords(null);
+      return;
+    }
+
+    if (menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      setPanelCoords({
+        top: rect.bottom + window.scrollY + 4,
+        right: document.documentElement.clientWidth - rect.right - window.scrollX,
+      });
+    }
 
     function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideMenu = menuRef.current?.contains(target) ?? false;
+      const insidePanel = panelRef.current?.contains(target) ?? false;
+      if (!insideMenu && !insidePanel) {
         setOpen(false);
       }
     }
@@ -51,7 +82,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     try {
       const formData = new FormData();
       formData.append('cover', file);
-      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover`), {
+      const res = await fetch(apiUrl(baseUrl), {
         method: 'POST',
         body: formData,
       });
@@ -59,7 +90,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
         const data = await res.json();
         throw new Error(data.error || 'Upload failed');
       }
-      onCoverUpdated();
+      onUpdated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
       clearError();
@@ -74,7 +105,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover`), {
+      const res = await fetch(apiUrl(baseUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput.trim() }),
@@ -83,7 +114,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
         const data = await res.json();
         throw new Error(data.error || 'Download failed');
       }
-      onCoverUpdated();
+      onUpdated();
       setUrlModalOpen(false);
       setUrlInput('');
     } catch (err) {
@@ -99,16 +130,38 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover/generate`), {
+      const res = await fetch(apiUrl(`${baseUrl}/generate`), {
         method: 'POST',
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Generation failed');
       }
-      onCoverUpdated();
+      onUpdated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
+      clearError();
+    } finally {
+      setLoading(false);
+      setOpen(false);
+    }
+  }
+
+  async function handleAutoGenerateWeb() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(apiUrl(`${baseUrl}/generate-web`), {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        // Surfaces 404 ("no cover available") and 502 ("MangaDex unreachable") in the red banner.
+        const data = await res.json();
+        throw new Error(data.error || 'Web fetch failed');
+      }
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Web fetch failed');
       clearError();
     } finally {
       setLoading(false);
@@ -141,9 +194,14 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
           </svg>
         </button>
 
-        {open && (
+        {open &&
+          panelCoords &&
+          typeof document !== 'undefined' &&
+          createPortal(
           <div
-            className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-border bg-surface shadow-lg z-50"
+            ref={panelRef}
+            className="absolute w-44 rounded-lg border border-border bg-surface shadow-lg z-50"
+            style={{ top: panelCoords.top, right: panelCoords.right }}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -198,7 +256,7 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
             <button
               onClick={handleAutoGenerate}
               disabled={loading}
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-b-lg disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface-elevated transition-colors disabled:opacity-50"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -217,7 +275,36 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
               </svg>
               Auto-generate
             </button>
-          </div>
+            {/* Disabled when the parent series isn't linked to MangaDex; tooltip teaches the fix. */}
+            <button
+              onClick={webDisabled ? undefined : handleAutoGenerateWeb}
+              disabled={loading || webDisabled}
+              title={
+                webDisabled ? 'Link this series to MangaDex via Fetch Metadata first.' : undefined
+              }
+              className={`flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-surface-elevated transition-colors rounded-b-lg disabled:opacity-50 ${
+                webDisabled ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              Auto-generate from web
+            </button>
+          </div>,
+          document.body,
         )}
       </div>
 
@@ -233,19 +320,26 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
         }}
       />
 
-      {urlModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setUrlModalOpen(false);
-          }}
-        >
+      {urlModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
           <div
-            className="w-96 rounded-lg border border-border bg-surface p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setUrlModalOpen(false);
+            }}
           >
+            <div
+              className="w-96 rounded-lg border border-border bg-surface p-4 shadow-xl"
+              // preventDefault is required because the menu may live inside a Next.js <Link>;
+              // without it, clicks bubble up at the DOM level and trigger anchor navigation.
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
             <h3 className="text-sm font-medium text-foreground mb-3">Set Cover from URL</h3>
             <input
               type="url"
@@ -275,7 +369,8 @@ export function SeriesCardMenu({ seriesId, onCoverUpdated }: SeriesCardMenuProps
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {error && (

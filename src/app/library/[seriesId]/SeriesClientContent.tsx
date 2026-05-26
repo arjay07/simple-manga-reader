@@ -38,6 +38,8 @@ export function SeriesClientContent({
   const [candidates, setCandidates] = useState<MetadataCandidate[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const selectedCandidate = candidates[selectedIndex] ?? null;
 
@@ -89,24 +91,80 @@ export function SeriesClientContent({
   async function handleConfirm() {
     if (!selectedCandidate) return;
     setSaving(true);
+    const candidate = selectedCandidate;
     try {
       const res = await fetch(apiUrl(`/api/manga/${series.id}/metadata`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description: selectedCandidate.description,
-          author: selectedCandidate.author,
-          mangadexId: selectedCandidate.mangadexId,
+          description: candidate.description,
+          author: candidate.author,
+          mangadexId: candidate.mangadexId,
         }),
       });
       if (!res.ok) throw new Error('Save failed');
       const updated = (await res.json()) as Series;
       setSeries(updated);
       handleDismiss();
+      // Fire after modal close so progress appears on the page, not blocking the dismiss.
+      if (candidate.mangadexId) {
+        void runBulkCoverFetch(candidate.mangadexId, series.id, volumes);
+      }
     } catch {
       setErrorMsg('Failed to save metadata. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runBulkCoverFetch(_mangadexId: string, seriesId: number, vols: Volume[]) {
+    const total = 1 + vols.length;
+    let failures = 0;
+    setBulkProgress({ done: 0, total });
+    setBulkError(null);
+
+    try {
+      const res = await fetch(apiUrl(`/api/manga/${seriesId}/cover/generate-web`), {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        failures += 1;
+        console.error(`Series cover fetch failed: ${res.status}`);
+      }
+    } catch (err) {
+      failures += 1;
+      console.error('Series cover fetch error:', err);
+    }
+    setBulkProgress({ done: 1, total });
+
+    for (let i = 0; i < vols.length; i++) {
+      const vol = vols[i];
+      if (i > 0) {
+        // 250ms inter-request delay keeps us under MangaDex's ~5 req/sec rate limit.
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      try {
+        const res = await fetch(
+          apiUrl(`/api/manga/${seriesId}/${vol.id}/cover/generate-web`),
+          { method: 'POST' },
+        );
+        if (!res.ok) {
+          failures += 1;
+          console.error(`Volume ${vol.id} cover fetch failed: ${res.status}`);
+        }
+      } catch (err) {
+        failures += 1;
+        console.error(`Volume ${vol.id} cover fetch error:`, err);
+      }
+      setBulkProgress({ done: 2 + i, total });
+    }
+
+    setBulkProgress(null);
+    if (failures === total) {
+      setBulkError('Cover fetch failed for all volumes. MangaDex may be unreachable.');
+      setTimeout(() => setBulkError(null), 8000);
+    } else {
+      router.refresh();
     }
   }
 
@@ -161,6 +219,21 @@ export function SeriesClientContent({
                 {deleting ? 'Deleting…' : 'Delete Series'}
               </button>
             </div>
+          )}
+
+          {bulkProgress && (
+            <p className="mt-3 text-sm text-muted">
+              Fetching covers… {bulkProgress.done}/{bulkProgress.total}
+            </p>
+          )}
+          {bulkError && (
+            <button
+              onClick={() => setBulkError(null)}
+              className="mt-3 block text-sm text-red-500 hover:underline"
+              title="Click to dismiss"
+            >
+              {bulkError}
+            </button>
           )}
         </div>
       </div>
@@ -252,7 +325,12 @@ export function SeriesClientContent({
         {volumes.length === 0 ? (
           <p className="text-muted">No volumes found for this series.</p>
         ) : (
-          <VolumeGrid seriesId={series.id} volumes={volumes} progressMap={progressMap} />
+          <VolumeGrid
+            seriesId={series.id}
+            mangadexId={series.mangadex_id}
+            volumes={volumes}
+            progressMap={progressMap}
+          />
         )}
       </section>
     </>

@@ -7,10 +7,12 @@ import type { Volume } from '@/types';
 
 export function VolumeGrid({
   seriesId,
+  mangadexId,
   volumes,
   progressMap: externalProgressMap,
 }: {
   seriesId: number;
+  mangadexId: string | null;
   volumes: Volume[];
   progressMap?: ProgressMap;
 }) {
@@ -55,6 +57,7 @@ export function VolumeGrid({
               seriesId={seriesId}
               volumeId={volume.id}
               volumeNumber={volume.volume_number}
+              mangadexId={mangadexId}
             />
             <h3 className="truncate text-sm font-medium text-foreground">{volume.title}</h3>
             {volume.volume_number != null && (

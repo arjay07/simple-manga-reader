@@ -4,7 +4,7 @@ import path from 'path';
 import sharp from 'sharp';
 import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
-import { ensureCoversDir, getVolumeThumbnailPath } from '@/lib/pdf-utils';
+import { ensureCoversDir, getVolumeCoverPath, getVolumeThumbnailPath } from '@/lib/pdf-utils';
 import { openPageSource, type Format } from '@/lib/page-source';
 
 interface VolumeRow {
@@ -36,6 +36,18 @@ export async function GET(
 
     if (!volume) {
       return NextResponse.json({ error: 'Volume not found' }, { status: 404 });
+    }
+
+    const overridePath = getVolumeCoverPath(volume.folder_name, volume.filename);
+
+    if (fs.existsSync(overridePath)) {
+      const imageBuffer = fs.readFileSync(overridePath);
+      return new NextResponse(imageBuffer, {
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'no-store',
+        },
+      });
     }
 
     const cachedPath = getVolumeThumbnailPath(volume.folder_name, volume.filename);

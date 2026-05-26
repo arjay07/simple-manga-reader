@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAdmin } from '@/components/AdminProvider';
-import { SeriesCardMenu } from './SeriesCardMenu';
+import { CoverMenu } from './CoverMenu';
 import { apiUrl } from '@/lib/basePath';
 
 interface SeriesCardProps {
@@ -11,9 +11,10 @@ interface SeriesCardProps {
   title: string;
   coverPath: string | null;
   volumeCount: number;
+  mangadexId: string | null;
 }
 
-export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProps) {
+export function SeriesCard({ id, title, coverPath, volumeCount, mangadexId }: SeriesCardProps) {
   const [imgError, setImgError] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
   const { isAdmin } = useAdmin();
@@ -43,7 +44,14 @@ export function SeriesCard({ id, title, coverPath, volumeCount }: SeriesCardProp
             <span className="text-center text-sm font-medium text-foreground">{title}</span>
           </div>
         )}
-        {isAdmin && <SeriesCardMenu seriesId={id} onCoverUpdated={handleCoverUpdated} />}
+        {isAdmin && (
+          <CoverMenu
+            target="series"
+            seriesId={id}
+            mangadexId={mangadexId}
+            onUpdated={handleCoverUpdated}
+          />
+        )}
       </div>
       <div className="p-2">
         <h3 className="truncate text-sm font-medium text-foreground">{title}</h3>

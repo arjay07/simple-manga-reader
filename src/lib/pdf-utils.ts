@@ -46,3 +46,9 @@ export function getVolumeThumbnailPath(folderName: string, volumeFilename: strin
   const baseName = volumeFilename.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(getMangaDir(), folderName, '.covers', `vol-${baseName}.jpg`);
 }
+
+// Manual/external cover override; takes priority over the page-1 thumbnail.
+export function getVolumeCoverPath(folderName: string, volumeFilename: string): string {
+  const baseName = volumeFilename.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(getMangaDir(), folderName, '.covers', `vol-${baseName}.cover.jpg`);
+}
