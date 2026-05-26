@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change add-volume-covers. Update Purpose after archive.
+The page-1 thumbnail that the reader falls back to is rarely the actual published cover art — frontmatter, copyright pages, and blank leaves are common — so library tiles often misrepresent their volumes. This capability owns cover art for series and individual volumes end-to-end: a per-volume manual-override file (`.cover.jpg`) that takes priority over the page-1 thumbnail, admin-gated upload (file or URL), page-1 regeneration, and canonical-art auto-fetch from MangaDex (whole-series or per-volume by volume number, with `en > ja > any` locale preference). All four actions are surfaced through a shared `CoverMenu` overlay used on both series cards and volume tiles, and the bulk fetch piggybacks on the Fetch Metadata flow so a user who links a series to MangaDex gets covers populated without an extra step. Overrides are preserved across bulk operations.
 
 ## Requirements
 
