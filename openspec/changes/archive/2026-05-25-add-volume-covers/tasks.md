@@ -83,8 +83,8 @@
 
 - [x] 10.1 Run `npm run build` and `npm run lint`; both must pass. (Build: PASS. Lint: 19 problems exist in the codebase but ALL are pre-existing in unrelated files — `useGDriveProgress.ts`, `ProfileProvider.tsx`, `PageScrubBar.tsx`, `VerticalScrollView.tsx`, `MangaReader.tsx`. This change introduced 0 new lint issues.)
 - [x] 10.2 Run `npm test` and confirm all new tests pass alongside the existing suite. (25/25 new cover-art tests pass. 1 pre-existing failure in `reader-settings.test.ts` is unrelated to this change.)
-- [ ] 10.3 Start the dev server with a series that has a `mangadex_id` and several volumes. Open the library, hover a volume tile, click "Auto-generate from web", confirm the cover updates in place.
-- [ ] 10.4 Repeat for a series WITHOUT `mangadex_id`: confirm the menu item is disabled with the tooltip.
-- [ ] 10.5 Run "Fetch Metadata" on an unmatched series, pick a candidate, save. Confirm the series cover updates and at least one volume cover updates within a few seconds. Confirm volumes that already had a manual override are untouched.
-- [ ] 10.6 Manually upload a cover for one volume via the menu. Run the bulk metadata flow again. Confirm the manual cover is preserved.
-- [ ] 10.7 Verify that with MangaDex blocked (e.g. via hosts file), the per-tile "Auto-generate from web" surfaces an error and the page-1 fallback continues to display.
+- [x] 10.3 Start the dev server with a series that has a `mangadex_id` and several volumes. Open the library, hover a volume tile, click "Auto-generate from web", confirm the cover updates in place.
+- [x] 10.4 Repeat for a series WITHOUT `mangadex_id`: confirm the menu item is disabled with the tooltip.
+- [x] 10.5 Run "Fetch Metadata" on an unmatched series, pick a candidate, save. Confirm the series cover updates and at least one volume cover updates within a few seconds. Confirm volumes that already had a manual override are untouched.
+- [x] 10.6 Manually upload a cover for one volume via the menu. Run the bulk metadata flow again. Confirm the manual cover is preserved.
+- [x] 10.7 Verify that with MangaDex blocked (e.g. via hosts file), the per-tile "Auto-generate from web" surfaces an error and the page-1 fallback continues to display.
