@@ -12,7 +12,9 @@ These issues do not block features today, but they make every panel-detection ad
 
 ## What Changes
 
-A focused, four-step modularisation. Steps are independent of each other and independent of the reader/admin tracks.
+A focused modularisation, sequenced behind a test baseline. Steps are independent of each other and independent of the reader/admin tracks.
+
+- **Step 0 — Reading-order test baseline** — before any threshold moves, pin `assignReadingOrder` with tests. It is a pure, deterministic `RawPanel[] → Panel[]` function, so it tests without ML/DB/filesystem. Labelled fixtures cover each case the `reading-order.ts` comments describe (row-grouping, the `horizConflict` guard, the deferral pass, the vertical-overlap fallback); a golden snapshot pins today's output as the safety net for Step 1's config extraction; property-based invariants guard the structural contract. This baseline is also the foundation the follow-on `separate-panel-ordering-from-detection` change relies on to land actual ordering fixes without regressing.
 
 - **Step 1 — `PanelDetectConfig`** — single typed config object holding every threshold currently inlined as a magic number in `ml.ts`, `reading-order.ts`, and `contour.ts`. Default exported from a new `src/lib/panel-detect/config.ts` with sensible defaults; passed through `detectPanelsMl`, `assignReadingOrder`, and `findPanels`. No behavioural change at default values; opens the door to per-series tuning later.
 
@@ -36,6 +38,7 @@ A focused, four-step modularisation. Steps are independent of each other and ind
 
 Out of scope (deferred):
 
+- **Separating reading-order from detection at the storage layer.** Today `panel_data` stores ordered `Panel[]`, so fixing an ordering bug forces a full ML re-run. Persisting `RawPanel[]` and computing order on read (or via a cheap admin "re-order" action), plus the actual ordering-algorithm fixes, are the subject of the follow-on `separate-panel-ordering-from-detection` change. This change deliberately preserves ordering behaviour (Step 0 pins it); the next change is where it changes.
 - Replacing the queue's polling with event emitters. Worth doing later, but costs complexity and is not on the critical path for any current UX issue.
 - Structured logging (pino/winston). Worth doing project-wide, not as part of this change.
 - Concurrent volume processing. Today the queue serializes one volume at a time; relaxing that requires job-isolation work that isn't justified yet.

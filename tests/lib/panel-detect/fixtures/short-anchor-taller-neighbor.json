@@ -1,0 +1,8 @@
+{
+  "note": "Vertical-overlap fallback: a short right-side anchor and a taller left-side neighbour that starts slightly lower. The top-edge rule fails by a hair (topDiff > 0.5 * anchor height) but the two share >=40% of the shorter (anchor) height, so the fallback groups them into one row.",
+  "input": [
+    { "x": 0.5, "y": 0.0, "width": 0.48, "height": 0.2, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.11, "width": 0.48, "height": 0.5, "confidence": 0.95 }
+  ],
+  "expected": ["p1", "p2"]
+}

@@ -1,6 +1,8 @@
 import { getDb } from '../db';
 import { jobManager } from './job-manager';
 import type { JobState } from './job-manager';
+import { scheduleSessionRelease, cancelScheduledRelease } from './onnx-session';
+import { DEFAULT_PANEL_DETECT_CONFIG } from './config';
 
 export type QueueStatus = 'pending' | 'running' | 'paused' | 'completed' | 'cancelled' | 'error';
 export type QueueItemStatus =
@@ -458,6 +460,8 @@ class QueueProcessor {
     force: boolean,
   ): Promise<void> {
     this.processing = true;
+    // A job is about to run — don't let a pending idle-release fire underneath it.
+    cancelScheduledRelease();
     const db = getDb();
 
     // Mark queue as running
@@ -475,8 +479,10 @@ class QueueProcessor {
 
       // Wait if paused
       if (queue.status === 'paused') {
-        // Exit the loop — resume() will restart it
+        // Exit the loop — resume() will restart it. Release the ONNX session
+        // after the idle window since no jobs will run until the user resumes.
         this.processing = false;
+        scheduleSessionRelease(DEFAULT_PANEL_DETECT_CONFIG.sessionIdleMs);
         return;
       }
 
@@ -538,6 +544,9 @@ class QueueProcessor {
 
     this.processing = false;
     this.activeQueueId = null;
+    // Queue drained (completed/cancelled) — release the ONNX session once no
+    // further jobs run for the idle window, freeing inference memory.
+    scheduleSessionRelease(DEFAULT_PANEL_DETECT_CONFIG.sessionIdleMs);
   }
 
   private awaitJobCompletion(): Promise<void> {

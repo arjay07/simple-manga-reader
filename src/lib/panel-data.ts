@@ -36,6 +36,15 @@ export function insertPanelData(
   processingTimeMs: number,
   confidenceThreshold: number,
 ): void {
+  if (!Number.isInteger(volumeId) || volumeId <= 0) {
+    throw new Error(`insertPanelData: volume_id must be a positive integer, got ${volumeId}`);
+  }
+  if (!Number.isInteger(pageNumber) || pageNumber <= 0) {
+    throw new Error(`insertPanelData: page_number must be a positive integer, got ${pageNumber}`);
+  }
+  if (!Array.isArray(panels)) {
+    throw new Error('insertPanelData: panels must be an array');
+  }
   const db = getDb();
   db.prepare(
     `INSERT OR REPLACE INTO panel_data
@@ -94,9 +103,20 @@ export function getPanelDataForPage(volumeId: number, pageNumber: number): Panel
   };
 }
 
-export function getPanelDataForPages(volumeId: number, pageNumbers: number[]): PanelDataPage[] {
+/**
+ * Fetch panel data for a specific set of pages in a single query.
+ *
+ * At most `limit` pages are fetched (default 50) to bound the IN-clause and the
+ * JSON parsing work; callers that genuinely need more may raise it. Pass a
+ * smaller value to cap prefetch on hot paths.
+ */
+export function getPanelDataForPages(
+  volumeId: number,
+  pageNumbers: number[],
+  limit: number = 50,
+): PanelDataPage[] {
   if (pageNumbers.length === 0) return [];
-  const capped = pageNumbers.slice(0, 10);
+  const capped = pageNumbers.slice(0, limit);
   const db = getDb();
   const placeholders = capped.map(() => '?').join(', ');
   const rows = db

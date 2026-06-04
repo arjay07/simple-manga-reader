@@ -43,6 +43,9 @@ yarn-error.log*
 /data/
 /public/covers/
 
+# db backups
+/backups/
+
 # tls certs
 /certs/
 

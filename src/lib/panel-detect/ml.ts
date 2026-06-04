@@ -1,44 +1,25 @@
 import type * as ortTypes from 'onnxruntime-node';
 import sharp from 'sharp';
-import { getModelPath, isModelDownloaded, downloadModel } from './model-downloader';
 import type { RawPanel, PageType } from './types';
+import {
+  type PanelDetectConfig,
+  type MlConfig,
+  DEFAULT_PANEL_DETECT_CONFIG,
+} from './config';
+import { classifyPageType } from './classify';
+import { getOrt, getSession } from './onnx-session';
 
 // manga109_yolo classes: body=0, face=1, frame=2, text=3
 const CLASS_NAMES = ['body', 'face', 'frame', 'text'];
 const FRAME_CLASS_INDEX = 2;
-const MODEL_INPUT_SIZE = 640;
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.25;
-const NMS_IOU_THRESHOLD = 0.45;
-
-let ort: typeof ortTypes | null = null;
-let session: ortTypes.InferenceSession | null = null;
-
-async function getOrt(): Promise<typeof ortTypes> {
-  if (ort) return ort;
-  ort = await import('onnxruntime-node');
-  return ort;
-}
-
-async function getSession(): Promise<ortTypes.InferenceSession> {
-  if (session) return session;
-
-  if (!isModelDownloaded()) {
-    await downloadModel();
-  }
-
-  const ortModule = await getOrt();
-  session = await ortModule.InferenceSession.create(getModelPath(), {
-    executionProviders: ['cpu'],
-  });
-  return session;
-}
 
 /**
  * Run ML-based panel detection using the YOLO ONNX model.
  */
 export async function detectPanelsMl(
   imageBuffer: Buffer,
-  confidenceThreshold: number = DEFAULT_CONFIDENCE_THRESHOLD,
+  confidenceThreshold?: number,
+  config: PanelDetectConfig = DEFAULT_PANEL_DETECT_CONFIG,
 ): Promise<{
   panels: RawPanel[];
   pageType: PageType;
@@ -46,6 +27,8 @@ export async function detectPanelsMl(
   imageHeight: number;
   debug?: { allDetections: unknown[] };
 }> {
+  const ml = config.ml;
+  const confidence = confidenceThreshold ?? ml.confidence;
   const sess = await getSession();
 
   // Get original image dimensions
@@ -53,8 +36,13 @@ export async function detectPanelsMl(
   const origWidth = metadata.width!;
   const origHeight = metadata.height!;
 
-  // Preprocess: letterbox resize to 640x640
-  const { tensor, scale, padX, padY } = await preprocessImage(imageBuffer, origWidth, origHeight);
+  // Preprocess: letterbox resize to inputSize x inputSize
+  const { tensor, scale, padX, padY } = await preprocessImage(
+    imageBuffer,
+    origWidth,
+    origHeight,
+    ml.inputSize,
+  );
 
   // Run inference
   const feeds: Record<string, ortTypes.Tensor> = { images: tensor };
@@ -66,12 +54,12 @@ export async function detectPanelsMl(
   const rawBoxes = parseYoloOutput(
     outputTensor.data as Float32Array,
     outputTensor.dims as number[],
-    confidenceThreshold,
+    confidence,
     debugDetections,
   );
 
   // Apply NMS
-  const nmsBoxes = nonMaximumSuppression(rawBoxes, NMS_IOU_THRESHOLD);
+  const nmsBoxes = nonMaximumSuppression(rawBoxes, ml.nmsIouThreshold, ml.containmentThreshold);
 
   // Convert from model coordinates back to normalized 0-1 image coordinates
   const panels: RawPanel[] = nmsBoxes.map((box) => {
@@ -112,14 +100,14 @@ export async function detectPanelsMl(
   // overlap with real content doesn't prevent filtering empty margins.
   const nonBlankPanels = panels.filter((p) => {
     const others = panels.filter((o) => o !== p && o.confidence >= p.confidence);
-    return !isRegionBlank(p, grayscaleBuf, sampleW, sampleH, others);
+    return !isRegionBlank(p, grayscaleBuf, sampleW, sampleH, ml, others);
   });
 
   // Infer missing panels from uncovered page regions
-  const allPanels = inferMissingPanels(nonBlankPanels, grayscaleBuf, sampleW, sampleH);
+  const allPanels = inferMissingPanels(nonBlankPanels, grayscaleBuf, sampleW, sampleH, ml);
 
   // Classify page type
-  const pageType = classifyPage(allPanels);
+  const pageType = classifyPageType(allPanels);
 
   return {
     panels: allPanels,
@@ -146,24 +134,25 @@ async function preprocessImage(
   imageBuffer: Buffer,
   origWidth: number,
   origHeight: number,
+  inputSize: number,
 ): Promise<{ tensor: ortTypes.Tensor; scale: number; padX: number; padY: number }> {
-  // Calculate scale to fit within MODEL_INPUT_SIZE while maintaining aspect ratio
-  const scale = Math.min(MODEL_INPUT_SIZE / origWidth, MODEL_INPUT_SIZE / origHeight);
+  // Calculate scale to fit within inputSize while maintaining aspect ratio
+  const scale = Math.min(inputSize / origWidth, inputSize / origHeight);
   const newWidth = Math.round(origWidth * scale);
   const newHeight = Math.round(origHeight * scale);
 
   // Padding to center the image
-  const padX = Math.round((MODEL_INPUT_SIZE - newWidth) / 2);
-  const padY = Math.round((MODEL_INPUT_SIZE - newHeight) / 2);
+  const padX = Math.round((inputSize - newWidth) / 2);
+  const padY = Math.round((inputSize - newHeight) / 2);
 
   // Resize and pad with gray (114/255 is YOLO convention)
   const { data: rgbData } = await sharp(imageBuffer)
     .resize(newWidth, newHeight)
     .extend({
       top: padY,
-      bottom: MODEL_INPUT_SIZE - newHeight - padY,
+      bottom: inputSize - newHeight - padY,
       left: padX,
-      right: MODEL_INPUT_SIZE - newWidth - padX,
+      right: inputSize - newWidth - padX,
       background: { r: 114, g: 114, b: 114 },
     })
     .removeAlpha()
@@ -173,8 +162,8 @@ async function preprocessImage(
   const pixels = new Uint8Array(rgbData);
 
   // Convert HWC RGB to CHW float32 normalized to 0-1
-  const floatData = new Float32Array(3 * MODEL_INPUT_SIZE * MODEL_INPUT_SIZE);
-  const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
+  const floatData = new Float32Array(3 * inputSize * inputSize);
+  const pixelCount = inputSize * inputSize;
 
   for (let i = 0; i < pixelCount; i++) {
     floatData[i] = pixels[i * 3] / 255; // R channel
@@ -183,12 +172,7 @@ async function preprocessImage(
   }
 
   const ortModule = await getOrt();
-  const tensor = new ortModule.Tensor('float32', floatData, [
-    1,
-    3,
-    MODEL_INPUT_SIZE,
-    MODEL_INPUT_SIZE,
-  ]);
+  const tensor = new ortModule.Tensor('float32', floatData, [1, 3, inputSize, inputSize]);
   return { tensor, scale, padX, padY };
 }
 
@@ -280,7 +264,11 @@ function parseYoloOutput(
  * Containment suppression removes large low-confidence boxes that contain
  * smaller higher-confidence boxes inside them.
  */
-function nonMaximumSuppression(boxes: YoloBox[], iouThreshold: number): YoloBox[] {
+function nonMaximumSuppression(
+  boxes: YoloBox[],
+  iouThreshold: number,
+  containmentThreshold: number,
+): YoloBox[] {
   if (boxes.length === 0) return [];
 
   // Sort by confidence descending
@@ -326,7 +314,7 @@ function nonMaximumSuppression(boxes: YoloBox[], iouThreshold: number): YoloBox[
       const overlapArea = overlapX * overlapY;
       const containment = innerArea > 0 ? overlapArea / innerArea : 0;
 
-      if (containment > 0.6) {
+      if (containment > containmentThreshold) {
         shouldSuppress = true;
         break;
       }
@@ -354,16 +342,10 @@ function computeIoU(a: YoloBox, b: YoloBox): number {
   return union > 0 ? intersection / union : 0;
 }
 
-// Minimum gap size as fraction of page dimension to be considered a missing panel
-const MIN_GAP_FRACTION = 0.1;
 // Minimum area of an inferred panel as fraction of page area
 const MIN_INFERRED_AREA = 0.05;
 // Page margin to ignore (panels at edges may not reach 0.0/1.0 exactly)
 const PAGE_MARGIN = 0.02;
-// Brightness threshold: pixels above this value (0-255) are considered "white"
-const BLANK_BRIGHTNESS_THRESHOLD = 230;
-// Fraction of white pixels required to consider a region blank
-const BLANK_PIXEL_FRACTION = 0.9;
 
 /**
  * Check if a normalized region of the page is mostly blank.
@@ -380,6 +362,7 @@ function isRegionBlank(
   grayscale: Buffer,
   imgW: number,
   imgH: number,
+  ml: MlConfig,
   excludePanels?: RawPanel[],
 ): boolean {
   const x1 = Math.max(0, Math.floor(region.x * imgW));
@@ -407,7 +390,7 @@ function isRegionBlank(
         continue;
       }
       const brightness = grayscale[row * imgW + col];
-      if (brightness >= BLANK_BRIGHTNESS_THRESHOLD) whiteCount++;
+      if (brightness >= ml.blankBrightnessThreshold) whiteCount++;
       sum += brightness;
       sumSq += brightness * brightness;
       totalCount++;
@@ -422,7 +405,7 @@ function isRegionBlank(
   const whiteFrac = whiteCount / totalCount;
 
   // Mostly white pixels
-  if (whiteFrac >= BLANK_PIXEL_FRACTION) return true;
+  if (whiteFrac >= ml.blankPixelFraction) return true;
 
   // Low variance = uniform color (catches cream, beige, gray margins)
   // stddev < 10 means nearly uniform color; also require brightness > 150
@@ -444,6 +427,7 @@ function inferMissingPanels(
   grayscale: Buffer,
   imgW: number,
   imgH: number,
+  ml: MlConfig,
 ): RawPanel[] {
   if (detected.length === 0) return detected;
 
@@ -464,7 +448,7 @@ function inferMissingPanels(
   const inferred: RawPanel[] = [];
 
   // Check top gap: space above all detected panels
-  if (minY > MIN_GAP_FRACTION) {
+  if (minY > ml.minGapFraction) {
     const gap: RawPanel = {
       x: PAGE_MARGIN,
       y: PAGE_MARGIN,
@@ -474,14 +458,14 @@ function inferMissingPanels(
     };
     if (
       gap.width * gap.height >= MIN_INFERRED_AREA &&
-      !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+      !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
     ) {
       inferred.push(gap);
     }
   }
 
   // Check bottom gap: space below all detected panels
-  if (maxY < 1.0 - MIN_GAP_FRACTION) {
+  if (maxY < 1.0 - ml.minGapFraction) {
     const gap: RawPanel = {
       x: PAGE_MARGIN,
       y: maxY,
@@ -491,14 +475,14 @@ function inferMissingPanels(
     };
     if (
       gap.width * gap.height >= MIN_INFERRED_AREA &&
-      !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+      !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
     ) {
       inferred.push(gap);
     }
   }
 
   // Check left gap: only if wide enough to be a real panel (>20% page width)
-  if (minX > 0.2) {
+  if (minX > ml.sideGapMinWidthFraction) {
     const gap: RawPanel = {
       x: PAGE_MARGIN,
       y: minY,
@@ -508,14 +492,14 @@ function inferMissingPanels(
     };
     if (
       gap.width * gap.height >= MIN_INFERRED_AREA &&
-      !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+      !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
     ) {
       inferred.push(gap);
     }
   }
 
   // Check right gap: only if wide enough to be a real panel (>20% page width)
-  if (maxX < 0.8) {
+  if (maxX < 1 - ml.sideGapMinWidthFraction) {
     const gap: RawPanel = {
       x: maxX,
       y: minY,
@@ -525,7 +509,7 @@ function inferMissingPanels(
     };
     if (
       gap.width * gap.height >= MIN_INFERRED_AREA &&
-      !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+      !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
     ) {
       inferred.push(gap);
     }
@@ -544,7 +528,7 @@ function inferMissingPanels(
       }
     }
     const gapHeight = nextTop - bottom;
-    if (gapHeight > MIN_GAP_FRACTION) {
+    if (gapHeight > ml.minGapFraction) {
       const gap: RawPanel = {
         x: PAGE_MARGIN,
         y: bottom,
@@ -554,8 +538,8 @@ function inferMissingPanels(
       };
       if (
         gap.width * gap.height >= MIN_INFERRED_AREA &&
-        !overlapsAny(gap, panels) &&
-        !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+        !overlapsAny(gap, panels, ml.overlapThreshold) &&
+        !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
       ) {
         inferred.push(gap);
       }
@@ -580,8 +564,8 @@ function inferMissingPanels(
       if (
         gap.width > 0.15 &&
         gap.width * gap.height >= MIN_INFERRED_AREA &&
-        !overlapsAny(gap, panels) &&
-        !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+        !overlapsAny(gap, panels, ml.overlapThreshold) &&
+        !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
       ) {
         inferred.push(gap);
       }
@@ -599,8 +583,8 @@ function inferMissingPanels(
       if (
         gap.width > 0.15 &&
         gap.width * gap.height >= MIN_INFERRED_AREA &&
-        !overlapsAny(gap, panels) &&
-        !isRegionBlank(gap, grayscale, imgW, imgH, panels)
+        !overlapsAny(gap, panels, ml.overlapThreshold) &&
+        !isRegionBlank(gap, grayscale, imgW, imgH, ml, panels)
       ) {
         inferred.push(gap);
       }
@@ -614,13 +598,15 @@ function inferMissingPanels(
   // Deduplicate merged panels against detected panels
   const unique: RawPanel[] = [];
   for (const gap of merged) {
-    if (!overlapsAny(gap, [...panels, ...unique])) {
+    if (!overlapsAny(gap, [...panels, ...unique], ml.overlapThreshold)) {
       unique.push(gap);
     }
   }
 
   return [...panels, ...unique];
 }
+
+// (page classification now lives in ./classify as the shared classifyPageType)
 
 /**
  * Merge vertically adjacent inferred gaps that share similar X positions.
@@ -677,7 +663,7 @@ function mergeAdjacentGaps(gaps: RawPanel[]): RawPanel[] {
 /**
  * Check if a candidate panel significantly overlaps any existing panel.
  */
-function overlapsAny(candidate: RawPanel, panels: RawPanel[]): boolean {
+function overlapsAny(candidate: RawPanel, panels: RawPanel[], overlapThreshold: number): boolean {
   for (const p of panels) {
     const overlapX = Math.max(
       0,
@@ -694,21 +680,12 @@ function overlapsAny(candidate: RawPanel, panels: RawPanel[]): boolean {
     // Check overlap from BOTH sides:
     // 1. Does a significant portion of the candidate overlap with an existing panel?
     // 2. Does a significant portion of an existing panel fall inside the candidate?
-    if (candidateArea > 0 && overlapArea / candidateArea > 0.3) {
+    if (candidateArea > 0 && overlapArea / candidateArea > overlapThreshold) {
       return true;
     }
-    if (existingArea > 0 && overlapArea / existingArea > 0.3) {
+    if (existingArea > 0 && overlapArea / existingArea > overlapThreshold) {
       return true;
     }
   }
   return false;
-}
-
-function classifyPage(panels: RawPanel[]): PageType {
-  if (panels.length === 0) return 'blank';
-  if (panels.length === 1) {
-    const area = panels[0].width * panels[0].height;
-    return area >= 0.9 ? 'full-bleed' : 'cover';
-  }
-  return 'panels';
 }

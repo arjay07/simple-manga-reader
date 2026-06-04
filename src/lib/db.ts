@@ -109,6 +109,7 @@ export function getDb(): Database.Database {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_volumes_series ON volumes(series_id);
     CREATE INDEX IF NOT EXISTS idx_panel_data_volume ON panel_data(volume_id);
+    CREATE INDEX IF NOT EXISTS idx_panel_data_volume_page ON panel_data(volume_id, page_number);
     CREATE INDEX IF NOT EXISTS idx_panel_queue_items_queue ON panel_queue_items(queue_id, status);
   `);
 

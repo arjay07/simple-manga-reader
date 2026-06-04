@@ -1,0 +1,5 @@
+{
+  "note": "Degenerate single-panel page — order is trivially [p1].",
+  "input": [{ "x": 0.04, "y": 0.04, "width": 0.92, "height": 0.92, "confidence": 0.98 }],
+  "expected": ["p1"]
+}

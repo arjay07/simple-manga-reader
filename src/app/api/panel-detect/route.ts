@@ -5,15 +5,25 @@ import sharp from 'sharp';
 import { getDb } from '@/lib/db';
 import { getMangaDir } from '@/lib/settings';
 import { extractPageAsImage } from '@/lib/panel-detect/extract-page';
-import { detectPanelsMl } from '@/lib/panel-detect/ml';
+import { getDetector, type DetectorName } from '@/lib/panel-detect/detector';
 import { assignReadingOrder } from '@/lib/panel-detect/reading-order';
-import type { PanelDetectResponse } from '@/lib/panel-detect/types';
+import { classifyPageType } from '@/lib/panel-detect/classify';
 import type { Format } from '@/lib/page-source';
+
+const VALID_STRATEGIES: DetectorName[] = ['ml', 'contour'];
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { seriesId, volumeId, page, confidenceThreshold } = body;
+    const { seriesId, volumeId, page, confidenceThreshold, strategy } = body;
+
+    const detectorName: DetectorName = strategy ?? 'ml';
+    if (!VALID_STRATEGIES.includes(detectorName)) {
+      return NextResponse.json(
+        { error: `Invalid strategy: ${strategy}. Expected one of ${VALID_STRATEGIES.join(', ')}` },
+        { status: 400 },
+      );
+    }
 
     // Look up the volume file path and format
     const db = getDb();
@@ -57,11 +67,12 @@ export async function POST(req: NextRequest) {
     // Extract page image via the format-agnostic page source
     const imageBuffer = await extractPageAsImage(filePath, row.format, pageNum);
 
-    // Run ML detection
+    // Run detection via the selected strategy
     const start = Date.now();
     const threshold = typeof confidenceThreshold === 'number' ? confidenceThreshold : 0.25;
-    const detection = await detectPanelsMl(imageBuffer, threshold);
-    const { panels, readingTree } = assignReadingOrder(detection.panels);
+    const rawPanels = await getDetector(detectorName).detect(imageBuffer, { confidence: threshold });
+    const pageType = classifyPageType(rawPanels);
+    const { panels, readingTree } = assignReadingOrder(rawPanels);
     const processingTimeMs = Date.now() - start;
 
     const metadata = await sharp(imageBuffer).metadata();
@@ -72,13 +83,12 @@ export async function POST(req: NextRequest) {
 
     const response = {
       results: {
-        ml: {
+        [detectorName]: {
           panels,
           readingTree,
-          pageType: detection.pageType,
+          pageType,
           processingTimeMs,
-          method: 'ml',
-          debug: detection.debug,
+          method: detectorName,
         },
       },
       pageImage,

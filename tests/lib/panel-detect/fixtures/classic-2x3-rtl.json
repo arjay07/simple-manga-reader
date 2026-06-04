@@ -1,0 +1,12 @@
+{
+  "note": "Standard 3-row x 2-column RTL grid with clear gutters and no deferral. Each row reads right-to-left, rows top-to-bottom.",
+  "input": [
+    { "x": 0.0, "y": 0.0, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.0, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.35, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.35, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.7, "width": 0.48, "height": 0.28, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.7, "width": 0.48, "height": 0.28, "confidence": 0.95 }
+  ],
+  "expected": ["p2", "p1", "p4", "p3", "p6", "p5"]
+}

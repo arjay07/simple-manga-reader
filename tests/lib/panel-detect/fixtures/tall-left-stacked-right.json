@@ -1,0 +1,9 @@
+{
+  "note": "Deferral pass: a tall left-column panel frames two stacked right-column panels. In RTL the right panels read first (top-to-bottom), then the tall left panel.",
+  "input": [
+    { "x": 0.0, "y": 0.0, "width": 0.48, "height": 0.9, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.0, "width": 0.48, "height": 0.43, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.47, "width": 0.48, "height": 0.43, "confidence": 0.95 }
+  ],
+  "expected": ["p2", "p3", "p1"]
+}

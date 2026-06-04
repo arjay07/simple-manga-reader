@@ -1,4 +1,9 @@
 import type { RawPanel, Panel, ReadingTreeNode } from './types';
+import {
+  type PanelDetectConfig,
+  type ReadingOrderConfig,
+  DEFAULT_PANEL_DETECT_CONFIG,
+} from './config';
 
 interface PanelWithId extends RawPanel {
   id: string;
@@ -18,7 +23,11 @@ interface OrderResult {
  * A panel's "anchor" for row assignment is its top edge (p.y).
  * Two panels are in the same row if their Y ranges overlap significantly.
  */
-export function assignReadingOrder(rawPanels: RawPanel[]): OrderResult {
+export function assignReadingOrder(
+  rawPanels: RawPanel[],
+  config: PanelDetectConfig = DEFAULT_PANEL_DETECT_CONFIG,
+): OrderResult {
+  const ro = config.readingOrder;
   if (rawPanels.length === 0) {
     return { panels: [], readingTree: null };
   }
@@ -36,7 +45,7 @@ export function assignReadingOrder(rawPanels: RawPanel[]): OrderResult {
   }
 
   // Sort by top-right priority: sort by top edge (y) first, then by right edge descending (RTL)
-  const sorted = sortRTL(panels);
+  const sorted = sortRTL(panels, ro);
 
   // Assign reading order
   const result: Panel[] = sorted.map((p, i) => ({
@@ -45,7 +54,7 @@ export function assignReadingOrder(rawPanels: RawPanel[]): OrderResult {
   }));
 
   // Build a simple reading tree from the sorted order
-  const tree = buildTreeFromSorted(sorted);
+  const tree = buildTreeFromSorted(sorted, ro);
 
   return { panels: result, readingTree: tree };
 }
@@ -58,7 +67,7 @@ export function assignReadingOrder(rawPanels: RawPanel[]): OrderResult {
  * 2. Sort rows by the topmost panel's Y (top-to-bottom).
  * 3. Within each row, sort by right edge descending (right-to-left).
  */
-function sortRTL(panels: PanelWithId[]): PanelWithId[] {
+function sortRTL(panels: PanelWithId[], ro: ReadingOrderConfig): PanelWithId[] {
   // Sort panels by top edge first to process top-to-bottom
   const byTop = [...panels].sort((a, b) => a.y - b.y);
 
@@ -92,14 +101,14 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
       // to allow even a small Y offset).
       const topDiff = Math.abs(candidate.y - anchorTop);
       const refHeight = Math.min(minHeight, candidate.height);
-      const topDiffOK = topDiff <= refHeight * 0.5;
+      const topDiffOK = topDiff <= refHeight * ro.rowTopEdgeFraction;
 
       const vertOverlapAnchor =
         Math.min(panel.y + panel.height, candidate.y + candidate.height) -
         Math.max(panel.y, candidate.y);
       const vertFractionShorter =
         Math.max(0, vertOverlapAnchor) / Math.min(panel.height, candidate.height);
-      const vertOverlapOK = vertFractionShorter >= 0.4;
+      const vertOverlapOK = vertFractionShorter >= ro.rowVerticalOverlapFraction;
 
       if (topDiffOK || vertOverlapOK) {
         // Reject candidates that substantially overlap a row member
@@ -115,13 +124,13 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
             Math.min(candidate.x + candidate.width, member.x + member.width) -
             Math.max(candidate.x, member.x);
           const horizFraction = Math.max(0, horizOverlap) / Math.min(candidate.width, member.width);
-          if (horizFraction > 0.5) {
+          if (horizFraction > ro.horizontalConflictFraction) {
             const memberVertOverlap =
               Math.min(candidate.y + candidate.height, member.y + member.height) -
               Math.max(candidate.y, member.y);
             const memberVertFractionTaller =
               Math.max(0, memberVertOverlap) / Math.max(candidate.height, member.height);
-            if (memberVertFractionTaller <= 0.7) {
+            if (memberVertFractionTaller <= ro.sideAlignmentRatio) {
               horizConflict = true;
               break;
             }
@@ -173,7 +182,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
             // panels they don't actually frame — the deferred panel must
             // visually "frame" the laterPanel for the deferral to make
             // sense as a manga reading-order rearrangement.
-            if (panelBottom > laterPanel.y + laterPanel.height * 0.6) {
+            if (panelBottom > laterPanel.y + laterPanel.height * ro.deferralFrameFraction) {
               const laterCenterX = laterPanel.x + laterPanel.width / 2;
               // Horizontal overlap: if high, panels are stacked vertically,
               // not side-by-side — skip deferral.
@@ -183,7 +192,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
               const overlapFraction =
                 Math.max(0, horizOverlap) / Math.min(panel.width, laterPanel.width);
 
-              if (overlapFraction < 0.5 && laterCenterX > panelCenterX) {
+              if (overlapFraction < ro.deferralHorizontalOverlap && laterCenterX > panelCenterX) {
                 targetRow = j;
               }
             }
@@ -213,7 +222,7 @@ function sortRTL(panels: PanelWithId[]): PanelWithId[] {
  * Groups consecutive panels that share a row into vertical cuts,
  * and separates rows with horizontal cuts.
  */
-function buildTreeFromSorted(panels: PanelWithId[]): ReadingTreeNode {
+function buildTreeFromSorted(panels: PanelWithId[], ro: ReadingOrderConfig): ReadingTreeNode {
   if (panels.length === 1) {
     return { panel: panels[0].id };
   }
@@ -221,7 +230,8 @@ function buildTreeFromSorted(panels: PanelWithId[]): ReadingTreeNode {
   if (panels.length === 2) {
     const [a, b] = panels;
     const sameRow =
-      Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < Math.min(a.height, b.height) * 0.5;
+      Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) <
+      Math.min(a.height, b.height) * ro.treeSameRowFraction;
 
     if (sameRow) {
       return {
@@ -248,7 +258,7 @@ function buildTreeFromSorted(panels: PanelWithId[]): ReadingTreeNode {
   return {
     cut: 'horizontal',
     at: cutY,
-    top: buildTreeFromSorted(top),
-    bottom: buildTreeFromSorted(bottom),
+    top: buildTreeFromSorted(top, ro),
+    bottom: buildTreeFromSorted(bottom, ro),
   };
 }

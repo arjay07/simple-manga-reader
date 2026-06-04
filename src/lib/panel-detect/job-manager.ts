@@ -3,7 +3,8 @@ import fs from 'fs';
 import { getDb } from '../db';
 import { getMangaDir } from '../settings';
 import { insertPanelData, getPanelDataForPage } from '../panel-data';
-import { detectPanelsMl } from './ml';
+import { getDetector } from './detector';
+import { classifyPageType } from './classify';
 import { assignReadingOrder } from './reading-order';
 import { openPageSource, type Format, type PageSource } from '../page-source';
 
@@ -224,8 +225,11 @@ class JobManager {
         try {
           const start = Date.now();
           const imageBuffer = await source.extractPage(page);
-          const detection = await detectPanelsMl(imageBuffer, this.confidenceThreshold);
-          const { panels, readingTree } = assignReadingOrder(detection.panels);
+          const rawPanels = await getDetector('ml').detect(imageBuffer, {
+            confidence: this.confidenceThreshold,
+          });
+          const pageType = classifyPageType(rawPanels);
+          const { panels, readingTree } = assignReadingOrder(rawPanels);
           const processingTimeMs = Date.now() - start;
 
           insertPanelData(
@@ -233,7 +237,7 @@ class JobManager {
             page,
             panels,
             readingTree,
-            detection.pageType,
+            pageType,
             processingTimeMs,
             this.confidenceThreshold,
           );
@@ -242,7 +246,7 @@ class JobManager {
           this.pages.push({
             pageNumber: page,
             panelCount: panels.length,
-            pageType: detection.pageType,
+            pageType,
             processingTimeMs,
           });
         } catch (err) {

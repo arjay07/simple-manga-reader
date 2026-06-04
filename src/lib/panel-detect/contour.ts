@@ -1,5 +1,11 @@
 import sharp from 'sharp';
 import type { RawPanel, PageType } from './types';
+import {
+  type PanelDetectConfig,
+  type ContourConfig,
+  DEFAULT_PANEL_DETECT_CONFIG,
+} from './config';
+import { classifyPageType } from './classify';
 
 interface Region {
   x: number;
@@ -8,31 +14,22 @@ interface Region {
   height: number;
 }
 
-interface GutterProjectionResult {
-  panels: RawPanel[];
-  pageType: PageType;
-}
-
-// Minimum gutter width as fraction of page dimension
-const MIN_GUTTER_FRACTION = 0.01;
-// Minimum percentage of a row/column that must be white to qualify as a gutter
-const GUTTER_WHITE_THRESHOLD = 0.85;
 // Minimum panel area as fraction of page area
 const MIN_PANEL_AREA_FRACTION = 0.02;
-// Threshold for blank page (fraction of total pixels that are white)
-const BLANK_PAGE_THRESHOLD = 0.95;
-// Threshold for full-bleed detection (single panel covering this much of the page)
-const FULL_BLEED_THRESHOLD = 0.9;
 
 /**
  * Run contour/gutter-based panel detection on an image buffer.
  */
-export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
+export async function detectPanelsContour(
+  imageBuffer: Buffer,
+  config: PanelDetectConfig = DEFAULT_PANEL_DETECT_CONFIG,
+): Promise<{
   panels: RawPanel[];
   pageType: PageType;
   imageWidth: number;
   imageHeight: number;
 }> {
+  const contour = config.contour;
   // Convert to grayscale and get raw pixel data
   const image = sharp(imageBuffer);
   const metadata = await image.metadata();
@@ -43,7 +40,7 @@ export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
   // Use a threshold that makes panel borders and art dark, gutters white
   const { data: rawPixels } = await image
     .grayscale()
-    .threshold(200)
+    .threshold(contour.grayscaleThreshold)
     .raw()
     .toBuffer({ resolveWithObject: true });
 
@@ -52,7 +49,7 @@ export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
   // Check for blank page
   const whitePixelCount = countWhitePixels(pixels);
   const totalPixels = imgWidth * imgHeight;
-  if (whitePixelCount / totalPixels > BLANK_PAGE_THRESHOLD) {
+  if (whitePixelCount / totalPixels > contour.blankPageThreshold) {
     return {
       panels: [],
       pageType: 'blank',
@@ -63,7 +60,7 @@ export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
 
   // Find panels via recursive gutter splitting
   const fullRegion: Region = { x: 0, y: 0, width: imgWidth, height: imgHeight };
-  const panelRegions = findPanels(pixels, imgWidth, imgHeight, fullRegion);
+  const panelRegions = findPanels(pixels, imgWidth, imgHeight, fullRegion, contour);
 
   // Filter out tiny regions
   const minArea = imgWidth * imgHeight * MIN_PANEL_AREA_FRACTION;
@@ -79,11 +76,11 @@ export async function detectPanelsContour(imageBuffer: Buffer): Promise<{
   }));
 
   // Classify page type
-  const result = classifyPageType(rawPanels);
+  const pageType = classifyPageType(rawPanels);
 
   return {
-    panels: result.panels,
-    pageType: result.pageType,
+    panels: rawPanels,
+    pageType,
     imageWidth: imgWidth,
     imageHeight: imgHeight,
   };
@@ -141,15 +138,20 @@ interface Gutter {
 /**
  * Find gutters (contiguous runs of high-white rows/columns) in a 1D projection.
  */
-function findGutters(projection: number[], dimension: number, minWidth: number): Gutter[] {
+function findGutters(
+  projection: number[],
+  dimension: number,
+  minWidth: number,
+  whiteThreshold: number,
+): Gutter[] {
   const gutters: Gutter[] = [];
   let i = 0;
 
   while (i < projection.length) {
-    if (projection[i] >= GUTTER_WHITE_THRESHOLD) {
+    if (projection[i] >= whiteThreshold) {
       const start = i;
       let sum = 0;
-      while (i < projection.length && projection[i] >= GUTTER_WHITE_THRESHOLD) {
+      while (i < projection.length && projection[i] >= whiteThreshold) {
         sum += projection[i];
         i++;
       }
@@ -181,21 +183,22 @@ function findPanels(
   imgWidth: number,
   imgHeight: number,
   region: Region,
+  contour: ContourConfig,
   depth: number = 0,
 ): Region[] {
   // Prevent infinite recursion
-  if (depth > 10) return [region];
+  if (depth > contour.recursionMaxDepth) return [region];
 
-  const minGutterH = Math.max(3, Math.floor(region.height * MIN_GUTTER_FRACTION));
-  const minGutterV = Math.max(3, Math.floor(region.width * MIN_GUTTER_FRACTION));
+  const minGutterH = Math.max(3, Math.floor(region.height * contour.minGutterFraction));
+  const minGutterV = Math.max(3, Math.floor(region.width * contour.minGutterFraction));
 
   // Try horizontal split first (find rows that are mostly white)
   const hProj = horizontalProjection(pixels, imgWidth, region);
-  const hGutters = findGutters(hProj, region.height, minGutterH);
+  const hGutters = findGutters(hProj, region.height, minGutterH, contour.gutterWhiteThreshold);
 
   // Try vertical split
   const vProj = verticalProjection(pixels, imgWidth, region);
-  const vGutters = findGutters(vProj, region.width, minGutterV);
+  const vGutters = findGutters(vProj, region.width, minGutterV, contour.gutterWhiteThreshold);
 
   // If no gutters found, this region is a single panel
   if (hGutters.length === 0 && vGutters.length === 0) {
@@ -219,7 +222,7 @@ function findPanels(
         height: splits[i + 1] - splits[i],
       };
       if (subRegion.height > 10) {
-        results.push(...findPanels(pixels, imgWidth, imgHeight, subRegion, depth + 1));
+        results.push(...findPanels(pixels, imgWidth, imgHeight, subRegion, contour, depth + 1));
       }
     }
   } else if (vGutters.length > 0) {
@@ -233,7 +236,7 @@ function findPanels(
         height: region.height,
       };
       if (subRegion.width > 10) {
-        results.push(...findPanels(pixels, imgWidth, imgHeight, subRegion, depth + 1));
+        results.push(...findPanels(pixels, imgWidth, imgHeight, subRegion, contour, depth + 1));
       }
     }
   }
@@ -284,21 +287,4 @@ function computeGutterConfidence(
   }
 
   return borderTotal > 0 ? Math.round((borderWhite / borderTotal) * 100) / 100 : 0.5;
-}
-
-function classifyPageType(panels: RawPanel[]): GutterProjectionResult {
-  if (panels.length === 0) {
-    return { panels: [], pageType: 'blank' };
-  }
-
-  if (panels.length === 1) {
-    const p = panels[0];
-    const area = p.width * p.height;
-    if (area >= FULL_BLEED_THRESHOLD) {
-      return { panels, pageType: 'full-bleed' };
-    }
-    return { panels, pageType: 'cover' };
-  }
-
-  return { panels, pageType: 'panels' };
 }
