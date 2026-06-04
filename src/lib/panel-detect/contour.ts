@@ -7,7 +7,7 @@ import {
 } from './config';
 import { classifyPageType } from './classify';
 
-interface Region {
+export interface Region {
   x: number;
   y: number;
   width: number;
@@ -97,7 +97,7 @@ function countWhitePixels(pixels: Uint8Array): number {
 /**
  * Compute horizontal projection: for each row, the fraction of white pixels.
  */
-function horizontalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
+export function horizontalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
   const projection = new Array(region.height);
   for (let row = 0; row < region.height; row++) {
     let whiteCount = 0;
@@ -114,7 +114,7 @@ function horizontalProjection(pixels: Uint8Array, imgWidth: number, region: Regi
 /**
  * Compute vertical projection: for each column, the fraction of white pixels.
  */
-function verticalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
+export function verticalProjection(pixels: Uint8Array, imgWidth: number, region: Region): number[] {
   const projection = new Array(region.width);
   for (let col = 0; col < region.width; col++) {
     let whiteCount = 0;
@@ -128,7 +128,7 @@ function verticalProjection(pixels: Uint8Array, imgWidth: number, region: Region
   return projection;
 }
 
-interface Gutter {
+export interface Gutter {
   start: number; // pixel offset within region
   end: number;
   center: number;
@@ -138,7 +138,7 @@ interface Gutter {
 /**
  * Find gutters (contiguous runs of high-white rows/columns) in a 1D projection.
  */
-function findGutters(
+export function findGutters(
   projection: number[],
   dimension: number,
   minWidth: number,
@@ -178,7 +178,7 @@ function findGutters(
 /**
  * Recursively split a region along detected gutters to find panels.
  */
-function findPanels(
+export function findPanels(
   pixels: Uint8Array,
   imgWidth: number,
   imgHeight: number,

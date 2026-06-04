@@ -4,21 +4,13 @@ import path from 'path';
 
 let db: Database.Database | null = null;
 
-export function getDb(): Database.Database {
-  if (db) {
-    return db;
-  }
-
-  const dbPath = path.resolve(process.cwd(), process.env.DATABASE_PATH ?? 'data/manga-reader.db');
-
-  const dbDir = path.dirname(dbPath);
-  fs.mkdirSync(dbDir, { recursive: true });
-
-  db = new Database(dbPath);
-
-  db.pragma('journal_mode = WAL');
-
-  db.exec(`
+/**
+ * Canonical table + index DDL. Shared between {@link getDb} and the test
+ * harness so an in-memory test database is always built from the exact same
+ * shape as production — a schema change can't leave tests green against a
+ * stale shape.
+ */
+export const SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS profiles (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
@@ -103,15 +95,28 @@ export function getDb(): Database.Database {
       completed_at DATETIME,
       error TEXT
     );
-  `);
 
-  // Indexes for common query patterns
-  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_volumes_series ON volumes(series_id);
     CREATE INDEX IF NOT EXISTS idx_panel_data_volume ON panel_data(volume_id);
     CREATE INDEX IF NOT EXISTS idx_panel_data_volume_page ON panel_data(volume_id, page_number);
     CREATE INDEX IF NOT EXISTS idx_panel_queue_items_queue ON panel_queue_items(queue_id, status);
-  `);
+`;
+
+export function getDb(): Database.Database {
+  if (db) {
+    return db;
+  }
+
+  const dbPath = path.resolve(process.cwd(), process.env.DATABASE_PATH ?? 'data/manga-reader.db');
+
+  const dbDir = path.dirname(dbPath);
+  fs.mkdirSync(dbDir, { recursive: true });
+
+  db = new Database(dbPath);
+
+  db.pragma('journal_mode = WAL');
+
+  db.exec(SCHEMA_SQL);
 
   // Migration: add reader_settings column if missing (existing DBs)
   const columns = db.pragma('table_info(profiles)') as { name: string }[];

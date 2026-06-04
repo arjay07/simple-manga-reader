@@ -20,9 +20,15 @@ function fileMd5(filepath: string): string {
   return hash.digest('hex');
 }
 
-function loadManifest(manifestPath: string): Manifest {
+export function loadManifest(manifestPath: string): Manifest {
   if (fs.existsSync(manifestPath)) {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    try {
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch {
+      // A manifest can be left half-written if a download is interrupted mid-save.
+      // Treat a corrupt file as "nothing recorded yet" rather than crashing resume.
+      return {};
+    }
   }
   return {};
 }

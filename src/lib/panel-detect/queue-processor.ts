@@ -3,6 +3,7 @@ import { jobManager } from './job-manager';
 import type { JobState } from './job-manager';
 import { scheduleSessionRelease, cancelScheduledRelease } from './onnx-session';
 import { DEFAULT_PANEL_DETECT_CONFIG } from './config';
+import { compareVolumeOrder } from './volume-order';
 
 export type QueueStatus = 'pending' | 'running' | 'paused' | 'completed' | 'cancelled' | 'error';
 export type QueueItemStatus =
@@ -87,12 +88,7 @@ class QueueProcessor {
     });
 
     // Sort by volume_number (nulls last)
-    volumes.sort((a, b) => {
-      if (a.volume_number === null && b.volume_number === null) return 0;
-      if (a.volume_number === null) return 1;
-      if (b.volume_number === null) return -1;
-      return a.volume_number - b.volume_number;
-    });
+    volumes.sort(compareVolumeOrder);
 
     // Insert queue
     const queueResult = db
