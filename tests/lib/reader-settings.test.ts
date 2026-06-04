@@ -30,6 +30,7 @@ describe('parseReaderSettings', () => {
     const all = {
       readingDirection: 'ltr',
       tapToTurn: true,
+      tapToAdvancePanel: true,
       pageMode: 'spread',
       verticalSnap: true,
     };

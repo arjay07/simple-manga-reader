@@ -94,40 +94,40 @@ exports[`assignReadingOrder — golden snapshot > classic-2x3-rtl output is stab
     },
   ],
   "readingTree": {
-    "at": 0.49999999999999994,
+    "at": 0.6749999999999999,
     "bottom": {
-      "at": 0.6749999999999999,
-      "bottom": {
-        "at": 0.49,
-        "cut": "vertical",
-        "left": {
-          "panel": "p5",
-        },
-        "right": {
-          "panel": "p6",
-        },
+      "at": 0.49,
+      "cut": "vertical",
+      "left": {
+        "panel": "p5",
       },
-      "cut": "horizontal",
-      "top": {
-        "panel": "p3",
+      "right": {
+        "panel": "p6",
       },
     },
     "cut": "horizontal",
     "top": {
-      "at": 0.15,
+      "at": 0.32499999999999996,
       "bottom": {
-        "at": 0.32499999999999996,
-        "bottom": {
-          "panel": "p4",
+        "at": 0.49,
+        "cut": "vertical",
+        "left": {
+          "panel": "p3",
         },
-        "cut": "horizontal",
-        "top": {
-          "panel": "p1",
+        "right": {
+          "panel": "p4",
         },
       },
       "cut": "horizontal",
       "top": {
-        "panel": "p2",
+        "at": 0.49,
+        "cut": "vertical",
+        "left": {
+          "panel": "p1",
+        },
+        "right": {
+          "panel": "p2",
+        },
       },
     },
   },
@@ -166,20 +166,20 @@ exports[`assignReadingOrder — golden snapshot > full-width-strip-vs-side outpu
     },
   ],
   "readingTree": {
-    "at": 0.25,
+    "at": 0.375,
     "bottom": {
-      "at": 0.375,
-      "bottom": {
-        "panel": "p3",
-      },
-      "cut": "horizontal",
-      "top": {
-        "panel": "p1",
-      },
+      "panel": "p3",
     },
     "cut": "horizontal",
     "top": {
-      "panel": "p2",
+      "at": 0.49,
+      "cut": "vertical",
+      "left": {
+        "panel": "p1",
+      },
+      "right": {
+        "panel": "p2",
+      },
     },
   },
 }
@@ -208,12 +208,12 @@ exports[`assignReadingOrder — golden snapshot > short-anchor-taller-neighbor o
     },
   ],
   "readingTree": {
-    "at": 0.155,
-    "bottom": {
+    "at": 0.49,
+    "cut": "vertical",
+    "left": {
       "panel": "p2",
     },
-    "cut": "horizontal",
-    "top": {
+    "right": {
       "panel": "p1",
     },
   },
@@ -271,20 +271,103 @@ exports[`assignReadingOrder — golden snapshot > tall-left-stacked-right output
     },
   ],
   "readingTree": {
-    "at": 0.44999999999999996,
-    "bottom": {
+    "at": 0.49,
+    "cut": "vertical",
+    "left": {
+      "panel": "p1",
+    },
+    "right": {
       "at": 0.44999999999999996,
       "bottom": {
-        "panel": "p1",
+        "panel": "p3",
       },
       "cut": "horizontal",
       "top": {
-        "panel": "p3",
+        "panel": "p2",
       },
     },
-    "cut": "horizontal",
-    "top": {
-      "panel": "p2",
+  },
+}
+`;
+
+exports[`assignReadingOrder — golden snapshot > three-column-tall-middle output is stable 1`] = `
+{
+  "panels": [
+    {
+      "confidence": 0.95,
+      "height": 0.47,
+      "id": "p1",
+      "readingOrder": 1,
+      "width": 0.32,
+      "x": 0.68,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.47,
+      "id": "p2",
+      "readingOrder": 2,
+      "width": 0.32,
+      "x": 0.68,
+      "y": 0.5,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.97,
+      "id": "p3",
+      "readingOrder": 3,
+      "width": 0.32,
+      "x": 0.34,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.47,
+      "id": "p4",
+      "readingOrder": 4,
+      "width": 0.32,
+      "x": 0,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.47,
+      "id": "p5",
+      "readingOrder": 5,
+      "width": 0.32,
+      "x": 0,
+      "y": 0.5,
+    },
+  ],
+  "readingTree": {
+    "at": 0.33,
+    "cut": "vertical",
+    "left": {
+      "at": 0.485,
+      "bottom": {
+        "panel": "p5",
+      },
+      "cut": "horizontal",
+      "top": {
+        "panel": "p4",
+      },
+    },
+    "right": {
+      "at": 0.67,
+      "cut": "vertical",
+      "left": {
+        "panel": "p3",
+      },
+      "right": {
+        "at": 0.485,
+        "bottom": {
+          "panel": "p2",
+        },
+        "cut": "horizontal",
+        "top": {
+          "panel": "p1",
+        },
+      },
     },
   },
 }

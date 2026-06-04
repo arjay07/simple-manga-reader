@@ -1,5 +1,5 @@
 {
-  "note": "A side-by-side pair straddling the row-grouping thresholds: the right panel starts noticeably lower than the left, with the top-edge difference just under 0.5 * the shorter height, so the pair stays a single row read right-to-left.",
+  "note": "A side-by-side pair where the right panel starts noticeably lower than the left. They overlap vertically (no horizontal gutter) but have a clean vertical gutter between them, so XY-cut reads them as one row right-to-left.",
   "input": [
     { "x": 0.0, "y": 0.0, "width": 0.48, "height": 0.4, "confidence": 0.92 },
     { "x": 0.5, "y": 0.18, "width": 0.48, "height": 0.4, "confidence": 0.92 }

@@ -1,5 +1,5 @@
 {
-  "note": "horizConflict guard: a near-full-width strip vertically overlaps the top row by >40% of the shorter height (so the vertical-overlap fallback would group it), but it overlaps a row member horizontally with weak vertical alignment, so the guard keeps it in its own row below.",
+  "note": "A near-full-width strip overlaps the two top panels, so no clean horizontal or vertical gutter exists. The centre-of-mass fallback splits horizontally (the strip's centre sits below the top pair), reading the top row right-to-left, then the strip.",
   "input": [
     { "x": 0.0, "y": 0.0, "width": 0.48, "height": 0.5, "confidence": 0.95 },
     { "x": 0.5, "y": 0.0, "width": 0.48, "height": 0.5, "confidence": 0.95 },

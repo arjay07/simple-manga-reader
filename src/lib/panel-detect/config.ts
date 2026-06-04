@@ -44,37 +44,15 @@ export interface MlConfig {
 }
 
 export interface ReadingOrderConfig {
-  /** Two panels share a row when the candidate's top edge is within this
-   * fraction of the shorter panel's height of the row anchor's top. Larger =
-   * more eager to merge tops into one row. (Audit: "rowOverlapHigh".)
-   * Default 0.5. */
-  rowTopEdgeFraction: number;
-  /** Fallback row-grouping rule: a candidate also joins the anchor's row when
-   * it shares at least this fraction of the shorter panel's vertical extent
-   * with the anchor. Catches a short anchor beside a taller neighbour that
-   * starts slightly lower, where the top-edge rule fails by a hair. (Audit:
-   * "rowOverlapLow".) Default 0.4. */
-  rowVerticalOverlapFraction: number;
-  /** Row-grouping conflict guard: a candidate that overlaps a row member
-   * horizontally by more than this fraction of the narrower panel is suspected
-   * of being stacked (e.g. a full-width strip), not side-by-side. Default 0.5. */
-  horizontalConflictFraction: number;
-  /** ...the vertical half of that guard: the suspicion is confirmed (candidate
-   * kept out of the row) only when the pair's vertical overlap is at most this
-   * fraction of the taller panel. (Audit: "sideDeferralRatio".) Default 0.7. */
-  sideAlignmentRatio: number;
-  /** Deferral pass: a panel is deferred past a later row only when it spans at
-   * least this fraction of the later panel's vertical range — i.e. it visually
-   * frames that panel. A weaker value wrongly defers short top panels. Default 0.6. */
-  deferralFrameFraction: number;
-  /** Deferral pass: the deferred panel and the later panel count as a genuine
-   * side-by-side layout (not vertically stacked) only when their horizontal
-   * overlap is below this fraction of the narrower panel. Default 0.5. */
-  deferralHorizontalOverlap: number;
-  /** Reading-tree construction: two panels are treated as one row (a vertical
-   * cut) when their vertical centres are within this fraction of the shorter
-   * height; otherwise a horizontal cut. Default 0.5. */
-  treeSameRowFraction: number;
+  /** Recursive XY-cut gutter tolerance. A full-span gap between two groups of
+   * panels counts as a clean cut (a row or column boundary) when nothing
+   * straddles it by more than this fraction of the normalised page extent —
+   * i.e. loose detector boxes may overlap across the cut line by up to this
+   * much and the gutter is still accepted. Larger = more eager to slice through
+   * slightly-overlapping boxes; too large risks cutting through a genuine panel.
+   * When no clean gutter is found the ordering falls back to a centre-of-mass
+   * split. Default 0.03. */
+  gutterTolerance: number;
 }
 
 export interface ContourConfig {
@@ -115,13 +93,7 @@ export const DEFAULT_PANEL_DETECT_CONFIG: PanelDetectConfig = {
     blankPixelFraction: 0.9,
   },
   readingOrder: {
-    rowTopEdgeFraction: 0.5,
-    rowVerticalOverlapFraction: 0.4,
-    horizontalConflictFraction: 0.5,
-    sideAlignmentRatio: 0.7,
-    deferralFrameFraction: 0.6,
-    deferralHorizontalOverlap: 0.5,
-    treeSameRowFraction: 0.5,
+    gutterTolerance: 0.03,
   },
   contour: {
     grayscaleThreshold: 200,

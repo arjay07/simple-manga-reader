@@ -1,0 +1,11 @@
+{
+  "note": "Three columns with a tall middle panel spanning the full height between two stacked outer columns. RTL XY-cut reads the right column top-to-bottom, then the tall middle, then the left column top-to-bottom. The old row-grouping heuristic wrongly merged the far-left and far-right top panels into one row (giving p1,p4,p2,p3,p5).",
+  "input": [
+    { "x": 0.68, "y": 0.0, "width": 0.32, "height": 0.47, "confidence": 0.95 },
+    { "x": 0.68, "y": 0.5, "width": 0.32, "height": 0.47, "confidence": 0.95 },
+    { "x": 0.34, "y": 0.0, "width": 0.32, "height": 0.97, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.0, "width": 0.32, "height": 0.47, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.5, "width": 0.32, "height": 0.47, "confidence": 0.95 }
+  ],
+  "expected": ["p1", "p2", "p3", "p4", "p5"]
+}
