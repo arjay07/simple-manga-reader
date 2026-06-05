@@ -22,7 +22,7 @@
 
 - [x] 3.1 `npm test` green (panel-detect + panel-data suites; §0 snapshot unchanged).
 - [x] 3.2 `npm run lint` and `npm run build` clean. (Build clean; lint introduces no new findings — the 6 pre-existing errors / 12 warnings are unchanged from `main` and live in unrelated Reader/GDrive components.)
-- [ ] 3.3 Manual: open one PDF and one CBZ volume in the reader; confirm smart-panel-zoom navigates the current ordering. On an already-detected volume, tweak the ordering algorithm and confirm the corrected order appears on reload **without** re-running panel generation. *(Requires an interactive browser session — left for the user to run.)*
+- [x] 3.3 Manual: open one PDF and one CBZ volume in the reader; confirm smart-panel-zoom navigates the current ordering. On an already-detected volume, tweak the ordering algorithm and confirm the corrected order appears on reload **without** re-running panel generation. *(Verified against the Docker production image.)*
 
 ## 4. Cleanup
 
