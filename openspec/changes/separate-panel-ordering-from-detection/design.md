@@ -1,44 +1,43 @@
 # Design
 
-## Decision 1 — Store raw panels, derive order (vs. recompute order on every read)
+## Decision 1 — Derive order at read time (vs. store ordered, vs. materialized re-order)
 
 Three options for where ordering lives relative to storage:
 
-| Option | Detection cost to re-order | Read cost | Storage | Notes |
+| Option | Cost to apply an ordering change | Read cost | Storage | Notes |
 |---|---|---|---|---|
-| **A. Store ordered only** (today) | Full ML re-run | Cheap (read JSON) | 1× | Ordering bug = re-detect everything |
-| **B. Store raw only, order on read** | None | `assignReadingOrder` per read | 1× | Read path now runs the algorithm; every reader page-load pays it; harder to inspect "what was stored" |
-| **C. Store raw + ordered, re-order on demand** | None (re-order action) | Cheap (read ordered JSON) | ~2× | Raw is the source of truth; ordered is a materialised view refreshed by an explicit action |
+| **A. Store ordered only** (original) | Full ML re-run of the volume | Cheap (read JSON) | 1× | Ordering change = re-detect everything |
+| **B. Derive on read** (**chosen**) | None — next read reflects it | `assignReadingOrder` per page read | 1× | Stored geometry is the source of truth; order is a pure view |
+| **C. Store raw + ordered, explicit re-order action** | None (re-order action) | Cheap (read ordered JSON) | ~2× | Raw column + endpoint + admin UI + backfill of pre-existing rows |
 
-**Chosen: C.** Storage is JSON text on a handful of panels per page — doubling it is negligible. Keeping the ordered output materialised means the reader's hot path (`getPanelDataForPages`, smart-panel-zoom) is unchanged and stays cheap. Re-ordering becomes an explicit, observable action rather than a silent per-read cost, which also makes it inspectable in the admin UI ("here's what changed when I re-ordered"). Option B's "order on read" is tempting for purity but pushes algorithm cost into every reader and removes the ability to diff stored-vs-recomputed.
+**Chosen: B.** For a self-hosted, single-user reader the only real cost of B — running `assignReadingOrder` on each read — is negligible: it is a pure, sub-millisecond function over ~5–15 boxes, dwarfed by the `JSON.parse` already on that path, even when the reader prefetches ~50 pages via `getPanelDataForPages`. In exchange, B deletes an entire column, a migration, a re-order endpoint, an admin control, and the backfill problem that C carries. Crucially, an ordering-algorithm change applies to the whole corpus *automatically* on next read — there is no action to remember to run, and old volumes are never left stale.
 
-### Consequence: ordered output can drift from raw
+C's advantages (a materialised cache, a stored-vs-recomputed diff, an explicit observable action) do not pay for themselves here: the cache saves sub-milliseconds, and there is nothing to diff once order is *defined* as a derivation of geometry — you inspect by rendering the result in `/admin/panel-detect`, which already shows live ordering. C earns its keep only at a scale (many concurrent readers, or genuinely expensive ordering) this app does not have.
 
-With C, `panels_json` is a cache of `orderPage(raw_panels_json)`. After an algorithm change, stored ordered panels are stale until re-ordered. This is acceptable and intended — re-order is a deliberate action — but the admin UI SHOULD surface staleness is *possible* (it cannot cheaply detect it without recomputing). We do not add automatic invalidation; that is explicitly out of scope.
+### Why B needs no raw column or backfill
 
-## Decision 2 — Backfill for pre-existing rows
+C's central complication is that pre-existing rows have no raw detector output to re-order from, forcing a `raw_panels_json` column and a "needs detection" backfill path. B sidesteps this entirely: the geometry in `panels_json` (`x/y/width/height/confidence`) **is** the `RawPanel[]` that ordering consumed. Detection calls `assignReadingOrder(rawPanels)`, which maps each raw box to an ordered panel by adding `id` + `readingOrder` and never mutates geometry (`reading-order.ts`). Stripping those two derived fields back off the stored panels yields exactly the ordering input. So every row — including ones written before this change — already carries everything needed to re-order, with no new column and no migration.
 
-Rows written before this change have `raw_panels_json = NULL` (the column is added additive-nullable). Options:
+### Consequence: stored order is non-authoritative
 
-- **Reconstruct raw from ordered** — strip `readingOrder`/`id` back to `RawPanel`. Tempting, but the inferred-panel and blank-filtering logic in `detectPanelsMl` means the ordered panels are *post-inference*; treating them as raw would feed inferred panels back as if detected. Rejected — it would silently corrupt the separation.
-- **Mark as "needs detection"** — the re-order action skips `NULL` raw rows and reports them. A one-time re-detect of the volume populates raw panels going forward. **Chosen** — simple, honest, no corruption. Existing ordered data keeps serving reads untouched.
+After this change, the `readingOrder` values and `reading_tree_json` written by detection are a snapshot that reads ignore and recompute. We keep writing them (the write path is untouched) because `panels_json` must store the geometry anyway and the stored order is a harmless, sensible default; nothing reads it as truth. We do not attempt to keep it in sync — it is simply re-derived in memory on each read.
 
-## Decision 3 — Where `orderPage` lives and what it owns
+## Decision 2 — Where derivation happens
 
-A new `src/lib/panel-detect/order.ts` exposing `orderPage(rawPanels: RawPanel[], config?: PanelDetectConfig)` that wraps `assignReadingOrder` and is the single producer of `panels_json` + `reading_tree_json`. Both the detection path and the re-order path go through it, so there is exactly one place ordering happens. `assignReadingOrder` itself stays the pure core (and stays directly unit-tested by the §0 suite); `orderPage` is the thin storage-aware seam.
+Read-time derivation lives in the three retrieval functions of `src/lib/panel-data.ts` (`getPanelDataForPage`, `getPanelDataForVolume`, `getPanelDataForPages`), via one shared row→page mapper so there is a single place ordering is applied on read. Each parses `panels_json`, passes the panels (typed as `RawPanel[]`) to `assignReadingOrder`, and returns the freshly-ordered `panels` + `readingTree`. `assignReadingOrder` is consumed as-is; this change adds only the storage-aware read seam around it, not any algorithm change.
 
-`reading-order.ts` is consumed as-is and not modified by this change; `orderPage` is the storage-aware seam around it. (The reading-order internals were already reworked into the recursive XY-cut in a separate change.)
+The detection write path continues to call `assignReadingOrder` itself (unchanged). We deliberately do **not** introduce a separate `orderPage`/`order.ts` producer or unify the two call sites — the write-side order is now a don't-care, so a shared "single producer" abstraction would imply a significance it no longer has.
+
+## Decision 3 — Cost ceiling and when to revisit
+
+The per-read cost is bounded by panels-per-page (single digits to low tens) and pages-per-read (≤50 via `getPanelDataForPages`). If a future change makes ordering materially expensive (e.g. a global cross-page optimisation) or introduces multi-reader server load, revisit C — the read seam is the natural place to add a memoised/materialised cache without touching the algorithm or the write path. Until then, derivation stays.
 
 ## Sequencing & dependency
 
 ```
 modularize-panel-detect §0 (test baseline, merged)  ──┐
                                                       ▼
-  this change §1 (raw storage)  →  §2 (re-order action)  →  §3 (apply landed XY-cut fix to corpus)
-                                                              │
-                          §3 changes no code — it runs the §2 re-order
-                          action over existing volumes and eyeballs the
-                          result in the admin UI (no re-detect)
+                              this change (read-time derivation)
 ```
 
-All three steps are behaviour-preserving for the *algorithm*: the §0 snapshot must stay green throughout. The XY-cut ordering fix itself landed in a separate change against that same baseline; here §3 merely propagates it to already-stored volumes.
+Behaviour-preserving for the *algorithm*: the §0 snapshot must stay green throughout. The XY-cut and scored-cut ordering fixes themselves landed in separate changes against that same baseline; this change merely makes any such fix reach already-stored volumes automatically, on next read.

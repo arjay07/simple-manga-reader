@@ -2,24 +2,14 @@
 
 ### Requirement: Panel data SQLite table
 
-The system SHALL store panel detection results in a `panel_data` table with columns: `id` (primary key), `volume_id` (FK to volumes), `page_number` (integer), `raw_panels_json` (text, nullable — JSON array of unordered `RawPanel` objects straight from the detector), `panels_json` (text, JSON array of ordered `Panel` objects derived from the raw panels), `reading_tree_json` (text, nullable), `page_type` (text), `processing_time_ms` (integer), `confidence_threshold` (real), and `created_at` (datetime). A UNIQUE constraint SHALL exist on `(volume_id, page_number)`.
+The system SHALL store panel detection results in a `panel_data` table with columns: `id` (primary key), `volume_id` (FK to volumes), `page_number` (integer), `panels_json` (text, JSON array of Panel objects — the detected panel set; its geometry `x` / `y` / `width` / `height` / `confidence` is authoritative, while the embedded `readingOrder` is a non-authoritative snapshot recomputed on read), `reading_tree_json` (text, nullable — a non-authoritative snapshot recomputed on read), `page_type` (text), `processing_time_ms` (integer), `confidence_threshold` (real), and `created_at` (datetime). A UNIQUE constraint SHALL exist on `(volume_id, page_number)`.
 
-`raw_panels_json` is the source of truth for ordering; `panels_json` and `reading_tree_json` are a materialised view of `orderPage(raw_panels_json)`.
+No raw-panel column is added: the geometry stored in `panels_json` already is the ordering stage's input.
 
 #### Scenario: Table created on DB initialization
 
 - **WHEN** the database is first accessed
-- **THEN** the `panel_data` table SHALL be created if it does not exist, including the `raw_panels_json` column
-
-#### Scenario: Additive migration for existing rows
-
-- **WHEN** a database created before this change is accessed after upgrade
-- **THEN** the `raw_panels_json` column SHALL be added to the existing `panel_data` table and pre-existing rows SHALL have `raw_panels_json` set to `NULL`, with their existing `panels_json` and `reading_tree_json` unchanged
-
-#### Scenario: Detection persists raw and ordered panels
-
-- **WHEN** panel detection completes for a volume/page
-- **THEN** the inserted row SHALL contain the unordered detector output in `raw_panels_json` AND the ordered output (derived via `orderPage`) in `panels_json` / `reading_tree_json`
+- **THEN** the `panel_data` table SHALL be created if it does not exist
 
 #### Scenario: Idempotent insert
 
@@ -28,26 +18,26 @@ The system SHALL store panel detection results in a `panel_data` table with colu
 
 ## ADDED Requirements
 
-### Requirement: Re-order stored panels without re-detection
+### Requirement: Reading order is derived at read time
 
-The system SHALL be able to recompute reading order for stored panel data by running the ordering stage over `raw_panels_json`, writing fresh `panels_json` and `reading_tree_json`, without invoking the detection model.
+When panel data is read back, the system SHALL recompute reading order and the reading tree from the stored panel geometry via the ordering stage, rather than returning the stored `readingOrder` / `reading_tree_json` verbatim. The stored panel geometry is the source of truth for ordering; no raw-panel column and no re-detection are involved.
 
-#### Scenario: Re-order a fully-detected volume
+#### Scenario: Read recomputes order from geometry
 
-- **WHEN** a re-order operation is invoked for a volume whose rows all have non-null `raw_panels_json`
-- **THEN** every row's `panels_json` and `reading_tree_json` SHALL be recomputed from its `raw_panels_json` via `orderPage`, no detection model inference SHALL run, and the operation SHALL report the count of rows re-ordered
+- **WHEN** stored panel data for a page is retrieved (single page, whole volume, or a page set)
+- **THEN** the returned panels' `readingOrder` and the returned reading tree SHALL be computed from the stored panel geometry by the ordering stage, and the returned geometry SHALL equal the stored geometry
 
-#### Scenario: Re-order skips rows missing raw panels
+#### Scenario: Stored order is non-authoritative
 
-- **WHEN** a re-order operation encounters a row with `raw_panels_json IS NULL` (written before raw panels were persisted)
-- **THEN** that row SHALL be left unchanged and counted in a `skippedNoRaw` total reported to the caller
+- **WHEN** a row's stored `panels_json` contains a `readingOrder` that disagrees with the current ordering algorithm
+- **THEN** the read SHALL return the order produced by the current algorithm, not the stored order
 
-#### Scenario: Re-order a single page
+#### Scenario: Algorithm change applies without regeneration
 
-- **WHEN** a re-order operation is invoked for a specific volume and page number with non-null `raw_panels_json`
-- **THEN** only that page's ordered output SHALL be recomputed and persisted
+- **WHEN** the ordering algorithm or its configuration changes and an already-stored page is subsequently read
+- **THEN** the read SHALL return the newly-ordered panels with no re-detection and no rewrite of the stored row
 
-#### Scenario: Re-order is idempotent under an unchanged algorithm
+#### Scenario: Empty page
 
-- **WHEN** a volume is re-ordered twice with no change to the ordering algorithm or config
-- **THEN** the resulting `panels_json` and `reading_tree_json` SHALL be identical across both runs
+- **WHEN** a stored row has an empty `panels_json`
+- **THEN** the read SHALL return zero panels and a `null` reading tree

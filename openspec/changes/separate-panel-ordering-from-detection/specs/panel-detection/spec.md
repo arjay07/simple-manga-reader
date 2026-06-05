@@ -1,22 +1,22 @@
 ## ADDED Requirements
 
-### Requirement: Ordering is a separate stage over raw detector output
+### Requirement: Ordering is a separate stage from detection
 
-Reading-order assignment SHALL be a distinct, independently-invokable stage that consumes the unordered detector output (`RawPanel[]`) and produces ordered `Panel[]` plus a reading tree. Detection and ordering SHALL be composable such that ordering can run over previously-stored detector output without re-running detection.
+Reading-order assignment SHALL be a distinct stage that consumes a set of panel boxes (`RawPanel[]`) and produces ordered `Panel[]` plus a reading tree. Detection and ordering SHALL be composable such that ordering can run over already-stored panel geometry without re-running detection.
 
 #### Scenario: Detection followed by ordering
 
-- **WHEN** detection produces raw panels for a page
-- **THEN** the ordering stage SHALL be applied to those raw panels to produce the ordered `Panel[]` and reading tree that are stored and returned
+- **WHEN** detection produces panels for a page
+- **THEN** the ordering stage SHALL be applied to those panels to produce the ordered `Panel[]` and reading tree
 
 #### Scenario: Ordering runs independently of detection
 
-- **WHEN** ordering is invoked over raw panels that were stored by a prior detection run
+- **WHEN** ordering is invoked over panel geometry that was stored by a prior detection run
 - **THEN** ordered output SHALL be produced without invoking the detection model
 
 #### Scenario: Ordering is a pure function of its inputs
 
-- **WHEN** the ordering stage is applied to the same raw panels with the same configuration
+- **WHEN** the ordering stage is applied to the same panels with the same configuration
 - **THEN** it SHALL return the same ordered `Panel[]` and reading tree every time, independent of detection, the database, or the filesystem
 
 ### Requirement: Reading-order behaviour is pinned by tests
