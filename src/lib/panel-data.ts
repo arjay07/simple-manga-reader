@@ -1,5 +1,6 @@
 import { getDb } from './db';
-import type { Panel, ReadingTreeNode, PageType } from './panel-detect/types';
+import { assignReadingOrder } from './panel-detect/reading-order';
+import type { Panel, RawPanel, ReadingTreeNode, PageType } from './panel-detect/types';
 
 export interface PanelDataRow {
   id: number;
@@ -61,6 +62,28 @@ export function insertPanelData(
   );
 }
 
+/**
+ * Map a stored row to a {@link PanelDataPage}, deriving reading order at read
+ * time. The geometry in `panels_json` *is* the `RawPanel[]` the ordering stage
+ * consumed at detection time (`assignReadingOrder` only adds `id`/`readingOrder`
+ * and never touches geometry), so we re-run ordering over it here and return the
+ * freshly-ordered panels + reading tree. The stored `readingOrder` /
+ * `reading_tree_json` are a non-authoritative snapshot and are ignored on read —
+ * an ordering-algorithm change thus reaches every stored row on its next read,
+ * with no re-detection and no rewrite.
+ */
+function rowToPage(row: PanelDataRow): PanelDataPage {
+  const rawPanels = JSON.parse(row.panels_json) as RawPanel[];
+  const { panels, readingTree } = assignReadingOrder(rawPanels);
+  return {
+    pageNumber: row.page_number,
+    panels,
+    readingTree,
+    pageType: row.page_type as PageType,
+    processingTimeMs: row.processing_time_ms,
+  };
+}
+
 export function getPanelDataForVolume(volumeId: number): PanelDataPage[] {
   const db = getDb();
   const rows = db
@@ -70,15 +93,7 @@ export function getPanelDataForVolume(volumeId: number): PanelDataPage[] {
     )
     .all(volumeId) as PanelDataRow[];
 
-  return rows.map((row) => ({
-    pageNumber: row.page_number,
-    panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json
-      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
-      : null,
-    pageType: row.page_type as PageType,
-    processingTimeMs: row.processing_time_ms,
-  }));
+  return rows.map(rowToPage);
 }
 
 export function getPanelDataForPage(volumeId: number, pageNumber: number): PanelDataPage | null {
@@ -92,15 +107,7 @@ export function getPanelDataForPage(volumeId: number, pageNumber: number): Panel
 
   if (!row) return null;
 
-  return {
-    pageNumber: row.page_number,
-    panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json
-      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
-      : null,
-    pageType: row.page_type as PageType,
-    processingTimeMs: row.processing_time_ms,
-  };
+  return rowToPage(row);
 }
 
 /**
@@ -127,15 +134,7 @@ export function getPanelDataForPages(
     )
     .all(volumeId, ...capped) as PanelDataRow[];
 
-  return rows.map((row) => ({
-    pageNumber: row.page_number,
-    panels: JSON.parse(row.panels_json) as Panel[],
-    readingTree: row.reading_tree_json
-      ? (JSON.parse(row.reading_tree_json) as ReadingTreeNode)
-      : null,
-    pageType: row.page_type as PageType,
-    processingTimeMs: row.processing_time_ms,
-  }));
+  return rows.map(rowToPage);
 }
 
 export function deletePanelDataForVolume(volumeId: number): number {
