@@ -1,0 +1,9 @@
+{
+  "note": "Diagonal staircase descending the page: p1 top-right, p2 lower and to the left (wide), p3 lower still. Consecutive panels overlap in both axes, so there is no perfectly clean horizontal or vertical gutter. The old algorithm has no clean cut, its center-of-mass fallback picks the x-axis (wider center gap), peels p2 to the left, then finds a misleading clean gutter between p1 and p3 — yielding p1,p3,p2. The scored cut takes the least-straddle horizontal cut and reads top-to-bottom: p1, p2, p3.",
+  "input": [
+    { "x": 0.55, "y": 0.0, "width": 0.4, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.05, "y": 0.2, "width": 0.55, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.4, "y": 0.45, "width": 0.45, "height": 0.3, "confidence": 0.95 }
+  ],
+  "expected": ["p1", "p2", "p3"]
+}

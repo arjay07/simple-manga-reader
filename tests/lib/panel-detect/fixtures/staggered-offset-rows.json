@@ -1,0 +1,10 @@
+{
+  "note": "Near two-row RTL layout where the top-left panel (p2) is taller and pokes ~0.065 across the row boundary — about 0.17 of its own height, under maxStraddleRatio (0.25) but well over the old absolute 0.03 tolerance. The old algorithm finds no clean horizontal gutter, falls to a vertical cut, and reads the right column before the left (p1,p3,p2,p4). The scored cut snaps each straddler to its majority side and keeps the row structure: top row right-to-left, then bottom row.",
+  "input": [
+    { "x": 0.5, "y": 0.0, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.0, "width": 0.48, "height": 0.38, "confidence": 0.95 },
+    { "x": 0.5, "y": 0.33, "width": 0.48, "height": 0.3, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.33, "width": 0.48, "height": 0.3, "confidence": 0.95 }
+  ],
+  "expected": ["p1", "p2", "p3", "p4"]
+}

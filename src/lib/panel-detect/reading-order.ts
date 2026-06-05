@@ -17,16 +17,23 @@ interface OrderResult {
 /**
  * Assign RTL manga reading order to raw detected panels.
  *
- * Strategy: recursive XY-cut (binary space partition). At each step we look for
- * a clean "gutter" — a full-span gap that separates the panels into two groups
- * with nothing straddling it:
+ * Strategy: recursive XY-cut (binary space partition). At each step we score
+ * every candidate cut line and take the best *separating* one:
  *
- *   1. Prefer a HORIZONTAL gutter (a full-width gap). Manga reads row by row,
- *      so the group above the gutter is read entirely before the group below.
- *   2. Otherwise look for a VERTICAL gutter (a full-height gap). RTL: the group
- *      to the RIGHT of the gutter is read entirely before the group to the left.
- *   3. If no clean gutter exists (overlapping / interlocking boxes), fall back
- *      to a centre-of-mass split on whichever axis is more separated.
+ *   1. Prefer a HORIZONTAL cut (a full-width split). Manga reads row by row,
+ *      so the group above the cut is read entirely before the group below.
+ *   2. Otherwise take a VERTICAL cut (a full-height split). RTL: the group to
+ *      the RIGHT of the cut is read entirely before the group to the left.
+ *   3. If no valid cut exists on either axis (genuinely interlocking boxes),
+ *      emit the region in deterministic geometric order so recursion terminates.
+ *
+ * A candidate cut is scored by how much it straddles panels, measured *relative
+ * to each panel's own extent* on the cut axis (see {@link bestValidCut}): a cut
+ * is valid only when no panel is clipped by more than `maxStraddleRatio` of its
+ * own size, and a straddled panel snaps to the side holding the majority of its
+ * area. This subsumes the old clean-gutter test (a perfectly clean gutter is
+ * just the zero-straddle case) and the old centre-of-mass fallback, so a panel
+ * poking slightly across a row boundary no longer forces a fragile guess.
  *
  * Each group recurses independently, so a tall panel that spans several rows of
  * its neighbours naturally reads as its own column rather than being forced into
@@ -65,16 +72,23 @@ export function assignReadingOrder(
 type Axis = 'x' | 'y';
 
 const lo = (p: RawPanel, axis: Axis): number => (axis === 'x' ? p.x : p.y);
-const hi = (p: RawPanel, axis: Axis): number =>
-  axis === 'x' ? p.x + p.width : p.y + p.height;
-const center = (p: RawPanel, axis: Axis): number => lo(p, axis) + (hi(p, axis) - lo(p, axis)) / 2;
+const hi = (p: RawPanel, axis: Axis): number => (axis === 'x' ? p.x + p.width : p.y + p.height);
 
-interface Split {
-  /** Panels with the smaller coordinate (top for 'y', left for 'x'). */
+/** Float-comparison slack for ranking cuts and for treating a near-zero
+ * straddle as clean. */
+const EPS = 1e-9;
+
+interface Cut {
+  /** Panels on the smaller-coordinate side (top for 'y', left for 'x'). */
   first: PanelWithId[];
-  /** Panels with the larger coordinate (bottom for 'y', right for 'x'). */
+  /** Panels on the larger-coordinate side (bottom for 'y', right for 'x'). */
   second: PanelWithId[];
-  /** Normalised position of the cut line. */
+  /** Largest fraction any single panel is clipped by this cut (0 = clean). */
+  maxClipped: number;
+  /** Signed gutter width at the cut: positive = a real gap, negative =
+   * boxes overlap across the line. Used only as a tie-break (wider is better). */
+  gap: number;
+  /** Normalised position of the cut line (the gutter midpoint). */
   at: number;
 }
 
@@ -88,8 +102,8 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
     return { panel: panels[0].id };
   }
 
-  // Prefer a clean horizontal gutter: manga reads row by row, top group first.
-  const h = cleanGutter(panels, 'y', ro.gutterTolerance);
+  // Prefer the least-straddle horizontal cut: manga reads row by row, top first.
+  const h = bestValidCut(panels, 'y', ro.maxStraddleRatio);
   if (h) {
     return {
       cut: 'horizontal',
@@ -99,8 +113,8 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
     };
   }
 
-  // Otherwise a clean vertical gutter: RTL, right group first.
-  const v = cleanGutter(panels, 'x', ro.gutterTolerance);
+  // Otherwise the least-straddle vertical cut: RTL, right group first.
+  const v = bestValidCut(panels, 'x', ro.maxStraddleRatio);
   if (v) {
     return {
       cut: 'vertical',
@@ -110,66 +124,98 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
     };
   }
 
-  // No clean gutter (overlapping boxes): split on the more separated axis.
-  return fallbackCut(panels, ro, out);
+  // Genuinely inseparable region (mutual overlap, no dominant axis): emit in
+  // deterministic geometric order so the recursion still terminates.
+  return inseparable(panels, ro, out);
 }
 
 /**
- * Find the widest clean gutter along `axis`, or null if none exists.
+ * Evaluate a candidate cut at position `p` on `axis`.
  *
- * A clean gutter splits the group (sorted by leading edge) into a prefix and a
- * suffix such that every prefix panel ends before every suffix panel begins —
- * i.e. nothing straddles the cut line. Detector boxes are loose, so panels may
- * overlap across the line by up to `tolerance` (a fraction of the normalised
- * page extent) and the gutter still counts as clean.
+ * Each panel's interval `[lo, hi]` is classified against `p`:
+ *   - `hi <= p`  → fully before the cut → `first`.
+ *   - `lo >= p`  → fully after the cut  → `second`.
+ *   - otherwise it straddles: `portionLow = (p - lo) / (hi - lo)`; the panel is
+ *     clipped by `min(portionLow, 1 - portionLow)` of its own extent and snaps
+ *     to the side holding the majority of its area (`portionLow > 0.5 → first`).
+ *
+ * Returns the partition, the largest per-panel clipped fraction, the signed
+ * gutter width, and the gutter-midpoint position.
  */
-function cleanGutter(panels: PanelWithId[], axis: Axis, tolerance: number): Split | null {
-  const sorted = [...panels].sort((a, b) => lo(a, axis) - lo(b, axis));
+function evaluateCut(panels: PanelWithId[], axis: Axis, p: number): Cut {
+  const first: PanelWithId[] = [];
+  const second: PanelWithId[] = [];
+  let maxClipped = 0;
 
-  let maxHi = hi(sorted[0], axis);
-  let best: { idx: number; gap: number; at: number } | null = null;
-
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = lo(sorted[i], axis) - maxHi;
-    if (gap >= -tolerance && (best === null || gap > best.gap)) {
-      best = { idx: i, gap, at: (maxHi + lo(sorted[i], axis)) / 2 };
+  for (const panel of panels) {
+    const l = lo(panel, axis);
+    const h = hi(panel, axis);
+    if (h <= p) {
+      first.push(panel);
+    } else if (l >= p) {
+      second.push(panel);
+    } else {
+      const portionLow = (p - l) / (h - l);
+      const clipped = Math.min(portionLow, 1 - portionLow);
+      if (clipped > maxClipped) maxClipped = clipped;
+      if (portionLow > 0.5) first.push(panel);
+      else second.push(panel);
     }
-    maxHi = Math.max(maxHi, hi(sorted[i], axis));
   }
 
-  if (!best) return null;
-  return { first: sorted.slice(0, best.idx), second: sorted.slice(best.idx), at: best.at };
+  // Gutter measured between the two assigned groups; midpoint is the cut line.
+  const maxHiFirst = first.length ? Math.max(...first.map((pp) => hi(pp, axis))) : p;
+  const minLoSecond = second.length ? Math.min(...second.map((pp) => lo(pp, axis))) : p;
+  return {
+    first,
+    second,
+    maxClipped,
+    gap: minLoSecond - maxHiFirst,
+    at: (maxHiFirst + minLoSecond) / 2,
+  };
 }
 
 /**
- * Last-resort split when no clean gutter exists: cut at the largest gap between
- * panel centres, on whichever axis is more separated. Horizontal wins ties
- * (read rows before columns). Guarantees a non-empty split on both sides so the
- * recursion always terminates.
+ * Best separating cut along `axis`, or null if none is valid.
+ *
+ * Tries a candidate at every panel's trailing edge (a line just past that box).
+ * A cut counts only when it places at least one panel on each side and clips no
+ * panel by more than `maxStraddleRatio` of that panel's own extent. Among the
+ * valid cuts it returns the one with the smallest `maxClipped` (a perfectly
+ * clean gutter, `maxClipped == 0`, always wins), breaking ties in favour of the
+ * wider gutter and, failing that, the first candidate encountered (input order)
+ * so the result is deterministic.
  */
-function fallbackCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): ReadingTreeNode {
-  const byY = centerGap(panels, 'y');
-  const byX = centerGap(panels, 'x');
+function bestValidCut(panels: PanelWithId[], axis: Axis, maxStraddleRatio: number): Cut | null {
+  let best: Cut | null = null;
 
-  if (byY.gap > 0 && byY.gap >= byX.gap) {
-    return {
-      cut: 'horizontal',
-      at: byY.at,
-      top: xyCut(byY.first, ro, out),
-      bottom: xyCut(byY.second, ro, out),
-    };
-  }
-  if (byX.gap > 0) {
-    return {
-      cut: 'vertical',
-      at: byX.at,
-      right: xyCut(byX.second, ro, out),
-      left: xyCut(byX.first, ro, out),
-    };
+  for (const candidate of panels) {
+    const cut = evaluateCut(panels, axis, hi(candidate, axis));
+    if (cut.first.length === 0 || cut.second.length === 0) continue;
+    if (cut.maxClipped > maxStraddleRatio + EPS) continue;
+    if (
+      best === null ||
+      cut.maxClipped < best.maxClipped - EPS ||
+      (Math.abs(cut.maxClipped - best.maxClipped) <= EPS && cut.gap > best.gap + EPS)
+    ) {
+      best = cut;
+    }
   }
 
-  // Degenerate: all centres coincide on both axes. Split positionally so the
-  // recursion still terminates (top-to-bottom, then right-to-left within a tie).
+  return best;
+}
+
+/**
+ * Terminal for a region no cut can separate (true mutual overlap with no
+ * dominant axis). Emits the panels in deterministic geometric order —
+ * top-to-bottom, then right-to-left — via a binary horizontal split, so the
+ * reading tree stays well-formed and the recursion terminates.
+ */
+function inseparable(
+  panels: PanelWithId[],
+  ro: ReadingOrderConfig,
+  out: string[],
+): ReadingTreeNode {
   const sorted = [...panels].sort((a, b) => a.y - b.y || b.x - a.x);
   const mid = Math.floor(sorted.length / 2);
   const top = sorted.slice(0, mid);
@@ -180,20 +226,4 @@ function fallbackCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[
     top: xyCut(top, ro, out),
     bottom: xyCut(bottom, ro, out),
   };
-}
-
-/** Split at the largest gap between panel centres along `axis`. */
-function centerGap(panels: PanelWithId[], axis: Axis): Split & { gap: number } {
-  const sorted = [...panels].sort((a, b) => center(a, axis) - center(b, axis));
-  let bestIdx = 1;
-  let bestGap = -Infinity;
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = center(sorted[i], axis) - center(sorted[i - 1], axis);
-    if (gap > bestGap) {
-      bestGap = gap;
-      bestIdx = i;
-    }
-  }
-  const at = (center(sorted[bestIdx - 1], axis) + center(sorted[bestIdx], axis)) / 2;
-  return { first: sorted.slice(0, bestIdx), second: sorted.slice(bestIdx), at, gap: bestGap };
 }

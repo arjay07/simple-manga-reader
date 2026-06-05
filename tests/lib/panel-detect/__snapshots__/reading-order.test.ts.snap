@@ -94,21 +94,21 @@ exports[`assignReadingOrder — golden snapshot > classic-2x3-rtl output is stab
     },
   ],
   "readingTree": {
-    "at": 0.6749999999999999,
+    "at": 0.32499999999999996,
     "bottom": {
-      "at": 0.49,
-      "cut": "vertical",
-      "left": {
-        "panel": "p5",
-      },
-      "right": {
-        "panel": "p6",
-      },
-    },
-    "cut": "horizontal",
-    "top": {
-      "at": 0.32499999999999996,
+      "at": 0.6749999999999999,
       "bottom": {
+        "at": 0.49,
+        "cut": "vertical",
+        "left": {
+          "panel": "p5",
+        },
+        "right": {
+          "panel": "p6",
+        },
+      },
+      "cut": "horizontal",
+      "top": {
         "at": 0.49,
         "cut": "vertical",
         "left": {
@@ -118,16 +118,67 @@ exports[`assignReadingOrder — golden snapshot > classic-2x3-rtl output is stab
           "panel": "p4",
         },
       },
-      "cut": "horizontal",
-      "top": {
-        "at": 0.49,
-        "cut": "vertical",
-        "left": {
-          "panel": "p1",
-        },
-        "right": {
-          "panel": "p2",
-        },
+    },
+    "cut": "horizontal",
+    "top": {
+      "at": 0.49,
+      "cut": "vertical",
+      "left": {
+        "panel": "p1",
+      },
+      "right": {
+        "panel": "p2",
+      },
+    },
+  },
+}
+`;
+
+exports[`assignReadingOrder — golden snapshot > diagonal-staircase output is stable 1`] = `
+{
+  "panels": [
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p1",
+      "readingOrder": 1,
+      "width": 0.4,
+      "x": 0.55,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p2",
+      "readingOrder": 2,
+      "width": 0.55,
+      "x": 0.05,
+      "y": 0.2,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p3",
+      "readingOrder": 3,
+      "width": 0.45,
+      "x": 0.4,
+      "y": 0.45,
+    },
+  ],
+  "readingTree": {
+    "at": 0.475,
+    "bottom": {
+      "panel": "p3",
+    },
+    "cut": "horizontal",
+    "top": {
+      "at": 0.5750000000000001,
+      "cut": "vertical",
+      "left": {
+        "panel": "p2",
+      },
+      "right": {
+        "panel": "p1",
       },
     },
   },
@@ -166,20 +217,20 @@ exports[`assignReadingOrder — golden snapshot > full-width-strip-vs-side outpu
     },
   ],
   "readingTree": {
-    "at": 0.375,
+    "at": 0.25,
     "bottom": {
-      "panel": "p3",
+      "at": 0.375,
+      "bottom": {
+        "panel": "p3",
+      },
+      "cut": "horizontal",
+      "top": {
+        "panel": "p1",
+      },
     },
     "cut": "horizontal",
     "top": {
-      "at": 0.49,
-      "cut": "vertical",
-      "left": {
-        "panel": "p1",
-      },
-      "right": {
-        "panel": "p2",
-      },
+      "panel": "p2",
     },
   },
 }
@@ -208,12 +259,12 @@ exports[`assignReadingOrder — golden snapshot > short-anchor-taller-neighbor o
     },
   ],
   "readingTree": {
-    "at": 0.49,
-    "cut": "vertical",
-    "left": {
+    "at": 0.155,
+    "bottom": {
       "panel": "p2",
     },
-    "right": {
+    "cut": "horizontal",
+    "top": {
       "panel": "p1",
     },
   },
@@ -235,6 +286,73 @@ exports[`assignReadingOrder — golden snapshot > single-panel output is stable 
   ],
   "readingTree": {
     "panel": "p1",
+  },
+}
+`;
+
+exports[`assignReadingOrder — golden snapshot > staggered-offset-rows output is stable 1`] = `
+{
+  "panels": [
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p1",
+      "readingOrder": 1,
+      "width": 0.48,
+      "x": 0.5,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.38,
+      "id": "p2",
+      "readingOrder": 2,
+      "width": 0.48,
+      "x": 0,
+      "y": 0,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p3",
+      "readingOrder": 3,
+      "width": 0.48,
+      "x": 0.5,
+      "y": 0.33,
+    },
+    {
+      "confidence": 0.95,
+      "height": 0.3,
+      "id": "p4",
+      "readingOrder": 4,
+      "width": 0.48,
+      "x": 0,
+      "y": 0.33,
+    },
+  ],
+  "readingTree": {
+    "at": 0.355,
+    "bottom": {
+      "at": 0.49,
+      "cut": "vertical",
+      "left": {
+        "panel": "p4",
+      },
+      "right": {
+        "panel": "p3",
+      },
+    },
+    "cut": "horizontal",
+    "top": {
+      "at": 0.49,
+      "cut": "vertical",
+      "left": {
+        "panel": "p2",
+      },
+      "right": {
+        "panel": "p1",
+      },
+    },
   },
 }
 `;
@@ -340,33 +458,33 @@ exports[`assignReadingOrder — golden snapshot > three-column-tall-middle outpu
     },
   ],
   "readingTree": {
-    "at": 0.33,
+    "at": 0.67,
     "cut": "vertical",
     "left": {
-      "at": 0.485,
-      "bottom": {
-        "panel": "p5",
-      },
-      "cut": "horizontal",
-      "top": {
-        "panel": "p4",
-      },
-    },
-    "right": {
-      "at": 0.67,
+      "at": 0.33,
       "cut": "vertical",
       "left": {
-        "panel": "p3",
-      },
-      "right": {
         "at": 0.485,
         "bottom": {
-          "panel": "p2",
+          "panel": "p5",
         },
         "cut": "horizontal",
         "top": {
-          "panel": "p1",
+          "panel": "p4",
         },
+      },
+      "right": {
+        "panel": "p3",
+      },
+    },
+    "right": {
+      "at": 0.485,
+      "bottom": {
+        "panel": "p2",
+      },
+      "cut": "horizontal",
+      "top": {
+        "panel": "p1",
       },
     },
   },

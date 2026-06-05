@@ -44,15 +44,19 @@ export interface MlConfig {
 }
 
 export interface ReadingOrderConfig {
-  /** Recursive XY-cut gutter tolerance. A full-span gap between two groups of
-   * panels counts as a clean cut (a row or column boundary) when nothing
-   * straddles it by more than this fraction of the normalised page extent —
-   * i.e. loose detector boxes may overlap across the cut line by up to this
-   * much and the gutter is still accepted. Larger = more eager to slice through
-   * slightly-overlapping boxes; too large risks cutting through a genuine panel.
-   * When no clean gutter is found the ordering falls back to a centre-of-mass
-   * split. Default 0.03. */
-  gutterTolerance: number;
+  /** Recursive XY-cut straddle budget, measured **relative to each panel's own
+   * extent on the cut axis** (not as an absolute page fraction). A candidate
+   * cut line is valid only when no panel is clipped by more than this fraction
+   * of its own width/height; among the valid cuts the ordering picks the one
+   * that straddles the least. A panel the cut does clip is assigned to the side
+   * holding the majority of its area (majority-snap), so a slightly-offset panel
+   * still sits in the correct row/column. Because the budget scales with each
+   * box, a small clip of a large panel no longer kills an otherwise-clean cut,
+   * and a large clip of a small panel is still rejected. Larger = more eager to
+   * slice through overlapping boxes; too small reverts to brittle clean-gutter
+   * behaviour. When no valid cut exists on either axis the region is emitted in
+   * deterministic geometric order. Default 0.25. */
+  maxStraddleRatio: number;
 }
 
 export interface ContourConfig {
@@ -93,7 +97,7 @@ export const DEFAULT_PANEL_DETECT_CONFIG: PanelDetectConfig = {
     blankPixelFraction: 0.9,
   },
   readingOrder: {
-    gutterTolerance: 0.03,
+    maxStraddleRatio: 0.25,
   },
   contour: {
     grayscaleThreshold: 200,
