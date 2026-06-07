@@ -3,12 +3,15 @@
 import { useState } from 'react';
 import { apiUrl } from '@/lib/basePath';
 import { useAdmin } from '@/components/AdminProvider';
+import { unitNoun } from '@/lib/unit-label';
+import type { SeriesKind } from '@/types';
 import { CoverMenu } from './CoverMenu';
 
 interface VolumeThumbnailProps {
   seriesId: number;
   volumeId: number;
   volumeNumber: number | null;
+  kind: SeriesKind;
   // Omit to suppress the admin cover menu (used on small surfaces like ContinueReading).
   mangadexId?: string | null;
 }
@@ -17,6 +20,7 @@ export function VolumeThumbnail({
   seriesId,
   volumeId,
   volumeNumber,
+  kind,
   mangadexId,
 }: VolumeThumbnailProps) {
   const [error, setError] = useState(false);
@@ -45,7 +49,7 @@ export function VolumeThumbnail({
           key={version}
           // Cache-bust by version so a freshly-uploaded cover re-fetches without a hard reload.
           src={apiUrl(`/api/manga/${seriesId}/${volumeId}/thumbnail?v=${version}`)}
-          alt={`Volume ${volumeNumber ?? ''}`}
+          alt={`${unitNoun(kind)} ${volumeNumber ?? ''}`}
           className="h-full w-full object-cover"
           onError={() => setError(true)}
         />

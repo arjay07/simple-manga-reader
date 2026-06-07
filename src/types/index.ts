@@ -11,6 +11,8 @@ export interface Profile {
   is_child: number;
 }
 
+export type SeriesKind = 'volume' | 'chapter';
+
 export interface Series {
   id: number;
   title: string;
@@ -19,6 +21,7 @@ export interface Series {
   author: string | null;
   description: string | null;
   mangadex_id: string | null;
+  kind: SeriesKind;
 }
 
 export interface SeriesListItem extends Series {
@@ -30,6 +33,7 @@ export interface Volume {
   series_id: number;
   title: string;
   filename: string;
+  // Possibly fractional for chapter-kind series (e.g. 10.5); whole for volumes.
   volume_number: number | null;
   page_count: number | null;
   format: Format;
@@ -47,4 +51,5 @@ export interface ProgressEntryWithSeries extends ProgressEntry {
   volume_number: number;
   series_id: number;
   series_title: string;
+  series_kind: SeriesKind;
 }

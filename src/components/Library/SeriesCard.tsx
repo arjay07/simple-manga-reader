@@ -5,16 +5,19 @@ import { useState } from 'react';
 import { useAdmin } from '@/components/AdminProvider';
 import { CoverMenu } from './CoverMenu';
 import { apiUrl } from '@/lib/basePath';
+import { unitNoun } from '@/lib/unit-label';
+import type { SeriesKind } from '@/types';
 
 interface SeriesCardProps {
   id: number;
   title: string;
   coverPath: string | null;
   volumeCount: number;
+  kind: SeriesKind;
   mangadexId: string | null;
 }
 
-export function SeriesCard({ id, title, coverPath, volumeCount, mangadexId }: SeriesCardProps) {
+export function SeriesCard({ id, title, coverPath, volumeCount, kind, mangadexId }: SeriesCardProps) {
   const [imgError, setImgError] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
   const { isAdmin } = useAdmin();
@@ -56,7 +59,8 @@ export function SeriesCard({ id, title, coverPath, volumeCount, mangadexId }: Se
       <div className="p-2">
         <h3 className="truncate text-sm font-medium text-foreground">{title}</h3>
         <p className="text-xs text-muted">
-          {volumeCount} {volumeCount === 1 ? 'volume' : 'volumes'}
+          {volumeCount} {unitNoun(kind).toLowerCase()}
+          {volumeCount === 1 ? '' : 's'}
         </p>
       </div>
     </Link>

@@ -4,7 +4,7 @@ import type { Profile, Series, SeriesListItem, Volume } from '@/types';
 export function getSeries(id: number | string): Series | undefined {
   return getDb()
     .prepare(
-      'SELECT id, title, folder_name, cover_path, author, description, mangadex_id, created_at FROM series WHERE id = ?',
+      'SELECT id, title, folder_name, cover_path, author, description, mangadex_id, kind, created_at FROM series WHERE id = ?',
     )
     .get(id) as Series | undefined;
 }
@@ -12,7 +12,7 @@ export function getSeries(id: number | string): Series | undefined {
 export function getSeriesList(): SeriesListItem[] {
   return getDb()
     .prepare(
-      `SELECT s.id, s.title, s.folder_name, s.cover_path, s.author, s.description, s.mangadex_id, s.created_at,
+      `SELECT s.id, s.title, s.folder_name, s.cover_path, s.author, s.description, s.mangadex_id, s.kind, s.created_at,
               COUNT(v.id) AS volume_count
        FROM series s
        LEFT JOIN volumes v ON v.series_id = s.id
