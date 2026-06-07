@@ -52,8 +52,6 @@ export function GDriveDownloadModal({
   // Cancel confirmation
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const isActive =
-    jobId && state.status !== 'done' && state.status !== 'cancelled' && state.status !== 'error';
   const showForm =
     !jobId || state.status === 'done' || state.status === 'cancelled' || state.status === 'error';
 

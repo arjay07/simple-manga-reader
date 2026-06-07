@@ -55,11 +55,7 @@ export function useGDriveProgress(jobId: string | null) {
   }, []);
 
   useEffect(() => {
-    if (!jobId) {
-      disconnect();
-      setState(initialState);
-      return;
-    }
+    if (!jobId) return;
 
     const es = new EventSource(apiUrl(`/api/gdrive/progress/${jobId}`));
     eventSourceRef.current = es;
@@ -184,8 +180,10 @@ export function useGDriveProgress(jobId: string | null) {
     return () => {
       es.close();
       eventSourceRef.current = null;
+      // Reset to a clean slate when the job changes or the consumer unmounts
+      setState(initialState);
     };
-  }, [jobId, disconnect]);
+  }, [jobId]);
 
   return { state, disconnect };
 }

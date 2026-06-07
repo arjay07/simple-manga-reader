@@ -31,6 +31,7 @@ export function ContinueReading() {
         className="group mb-6 flex items-center gap-4 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-elevated"
       >
         <div className="relative h-20 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={apiUrl(`/api/manga/${hero.series_id}/${hero.volume_id}/thumbnail`)}
             alt={hero.series_title}
