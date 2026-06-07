@@ -637,7 +637,6 @@ export default function MangaReader({
         for (const p of missing) fetchedPagesRef.current.delete(p);
       });
     // Only re-run on page change — not on panelDataMap updates
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, smartPanelZoom, volumeId]);
 
   // On page change: handle seamless cross-page transitions OR auto-zoom into panels
@@ -862,7 +861,6 @@ export default function MangaReader({
         }
       }, 0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pdfDocument,
     currentPage,
@@ -1357,66 +1355,6 @@ export default function MangaReader({
     const { stopCount, zoom } = computeStopGeometry(panel, vW, vH, cw, ch);
     return { stopCount, zoom };
   }, []);
-
-  // Compute the panX value for each stop of a multi-stop panel.
-  // Returns array of panX values indexed by stop, using current canvas/zoom state.
-  const computeStopPanPositions = useCallback(
-    (panel: Panel): number[] => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return [panRef.current.x];
-
-      const vW = window.innerWidth;
-      const vH = container.clientHeight;
-      const cw = parseFloat(canvas.style.width) || 0;
-      const ch = parseFloat(canvas.style.height) || 0;
-      if (cw === 0 || ch === 0) return [panRef.current.x];
-
-      const s = zoomScaleRef.current;
-      const ox = zoomOriginRef.current.x;
-      const natLeft = (vW - cw) / 2;
-      const natTop = (vH - ch) / 2;
-
-      const marginX = panel.width * 0.08 * (1 - panel.width);
-      const marginY = panel.height * 0.08 * (1 - panel.height);
-      const px = Math.max(0, panel.x - marginX);
-      const py = Math.max(0, panel.y - marginY);
-      const pw = Math.min(1 - px, panel.width + marginX * 2);
-      const ph = Math.min(1 - py, panel.height + marginY * 2);
-
-      const { stopCount } = computeStopCount(panel);
-
-      if (stopCount <= 1) {
-        // Single-stop: compute the centered position
-        const panelCx = (px + pw / 2) * cw;
-        const panelCy = (py + ph / 2) * ch;
-        const centerPanX = vW / 2 - natLeft - panelCx;
-        const centerPanY = vH / 2 - natTop - panelCy;
-        // The single-stop position uses the same formula as zoomToPanel's single-stop branch
-        return [centerPanX];
-      }
-
-      const panelLeftCss = px * cw;
-      const panelWidthZoomed = pw * cw * s;
-      // Distribute stops evenly: first covers the panel's left edge, last covers
-      // the right edge, middles are evenly spaced. This matches the minStride
-      // check in computeStopCount (which assumes uniform spacing) and avoids
-      // the tiny last-transition that a fixed-stride + clamp approach produced
-      // when panelWidthZoomed was just barely over (stopCount-1)*fixedStride.
-      const uniformStride = (panelWidthZoomed - vW) / (stopCount - 1);
-
-      const positions: number[] = [];
-      for (let i = 0; i < stopCount; i++) {
-        const effStop = effectiveDirection === 'rtl' ? stopCount - 1 - i : i;
-        const stopCenterX = effStop * uniformStride + vW / 2;
-        const canvasCenterX = panelLeftCss + stopCenterX / s;
-        const panX = vW / 2 - natLeft - ox * (1 - s) - canvasCenterX * s;
-        positions.push(panX);
-      }
-      return positions;
-    },
-    [computeStopCount, effectiveDirection],
-  );
 
   // Compute transform params for a panel/stop using current canvas dims (no re-render).
   const computePanelTransform = useCallback(
@@ -2585,7 +2523,6 @@ export default function MangaReader({
       smartPanelZoom,
       hasPanelData,
       panelDataMap,
-      currentPage,
       computePanelTransform,
       computeStopCount,
       getPinchGeometry,
@@ -3097,16 +3034,6 @@ export default function MangaReader({
       writeLetterbox,
       liveTransform,
     ],
-  );
-
-  // Legacy swipe for spread mode (tap-based, no drag)
-  const handleSpreadTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      if (!spreadMode) return;
-      const touch = e.touches[0];
-      touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    },
-    [spreadMode],
   );
 
   // Tap handler with tap-to-turn zone detection (mouse/desktop only; mobile taps handled in touchend)

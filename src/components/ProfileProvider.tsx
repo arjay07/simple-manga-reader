@@ -32,29 +32,26 @@ export default function ProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const storedId = localStorage.getItem(STORAGE_KEY);
-    if (!storedId) {
-      setLoading(false);
-      return;
-    }
 
-    fetch(apiUrl(`/api/profiles/${storedId}`))
-      .then((res) => {
+    const loadProfile = async () => {
+      if (!storedId) return;
+      try {
+        const res = await fetch(apiUrl(`/api/profiles/${storedId}`));
         if (!res.ok) throw new Error('Failed to fetch profile');
-        return res.json();
-      })
-      .then((data: Profile) => {
+        const data: Profile = await res.json();
         setProfile(data);
         document.cookie = `profileId=${data.id};path=/;max-age=${60 * 60 * 24 * 365};SameSite=Lax`;
         if (data.theme) {
           applyProfileTheme(data.theme);
         }
-      })
-      .catch(() => {
+      } catch {
         localStorage.removeItem(STORAGE_KEY);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      }
+    };
+
+    loadProfile().finally(() => {
+      setLoading(false);
+    });
   }, []);
 
   const setActiveProfile = (newProfile: Profile) => {

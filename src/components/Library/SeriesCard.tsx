@@ -11,13 +11,12 @@ import type { SeriesKind } from '@/types';
 interface SeriesCardProps {
   id: number;
   title: string;
-  coverPath: string | null;
   volumeCount: number;
   kind: SeriesKind;
   mangadexId: string | null;
 }
 
-export function SeriesCard({ id, title, coverPath, volumeCount, kind, mangadexId }: SeriesCardProps) {
+export function SeriesCard({ id, title, volumeCount, kind, mangadexId }: SeriesCardProps) {
   const [imgError, setImgError] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
   const { isAdmin } = useAdmin();

@@ -25,25 +25,6 @@ export default function VerticalScrollView({
   const visiblePages = useRef<Set<number>>(new Set());
   const aspectRatio = useRef<number>(1.4); // default until measured
 
-  // Measure page 1 aspect ratio and set all placeholder dimensions
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      const page = await pdfDocument.getPage(1);
-      if (cancelled) return;
-
-      const vp = page.getViewport({ scale: 1 });
-      aspectRatio.current = vp.height / vp.width;
-      applyPlaceholderSizes();
-    }
-
-    init();
-    return () => {
-      cancelled = true;
-    };
-  }, [pdfDocument, totalPages]);
-
   // Apply placeholder dimensions to all canvases based on stored aspect ratio
   const applyPlaceholderSizes = useCallback(() => {
     const container = containerRef.current;
@@ -61,6 +42,25 @@ export default function VerticalScrollView({
       }
     }
   }, []);
+
+  // Measure page 1 aspect ratio and set all placeholder dimensions
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      const page = await pdfDocument.getPage(1);
+      if (cancelled) return;
+
+      const vp = page.getViewport({ scale: 1 });
+      aspectRatio.current = vp.height / vp.width;
+      applyPlaceholderSizes();
+    }
+
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfDocument, totalPages, applyPlaceholderSizes]);
 
   // Render a single page onto its canvas
   const renderPage = useCallback(

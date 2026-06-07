@@ -44,6 +44,14 @@ export default function PageScrubBar({
     [totalPages, isRtl],
   );
 
+  // Convert a pointer's clientX into a position relative to the bar, captured
+  // at event time so the tooltip never reads the ref during render.
+  const relativeX = useCallback((clientX: number) => {
+    const bar = barRef.current;
+    if (!bar) return 0;
+    return clientX - bar.getBoundingClientRect().left;
+  }, []);
+
   // Render thumbnail for a given page
   const renderThumbnail = useCallback(
     async (pageNum: number) => {
@@ -89,15 +97,15 @@ export default function PageScrubBar({
     [pdfDocument],
   );
 
-  // Update thumbnail when hover page changes
+  // Update thumbnail when hover page changes; reset on hover-end via cleanup
   useEffect(() => {
-    if (hoverPage !== null) {
-      renderThumbnail(hoverPage);
-    } else {
+    if (hoverPage === null) return;
+    renderThumbnail(hoverPage);
+    return () => {
       setThumbnailSrc(null);
       setThumbnailLoading(false);
       renderingPageRef.current = null;
-    }
+    };
   }, [hoverPage, renderThumbnail]);
 
   // Mouse hover (no click)
@@ -106,9 +114,9 @@ export default function PageScrubBar({
       if (isDragging) return;
       const page = pageFromX(e.clientX);
       setHoverPage(page);
-      setHoverX(e.clientX);
+      setHoverX(relativeX(e.clientX));
     },
-    [isDragging, pageFromX],
+    [isDragging, pageFromX, relativeX],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -136,9 +144,9 @@ export default function PageScrubBar({
       setIsDragging(true);
       const page = pageFromX(e.clientX);
       setHoverPage(page);
-      setHoverX(e.clientX);
+      setHoverX(relativeX(e.clientX));
     },
-    [pageFromX],
+    [pageFromX, relativeX],
   );
 
   useEffect(() => {
@@ -147,7 +155,7 @@ export default function PageScrubBar({
     const handleMove = (e: MouseEvent) => {
       const page = pageFromX(e.clientX);
       setHoverPage(page);
-      setHoverX(e.clientX);
+      setHoverX(relativeX(e.clientX));
     };
 
     const handleUp = (e: MouseEvent) => {
@@ -163,7 +171,7 @@ export default function PageScrubBar({
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseup', handleUp);
     };
-  }, [isDragging, pageFromX, onPageChange]);
+  }, [isDragging, pageFromX, onPageChange, relativeX]);
 
   // Touch drag
   const handleTouchStart = useCallback(
@@ -174,9 +182,9 @@ export default function PageScrubBar({
       const touch = e.touches[0];
       const page = pageFromX(touch.clientX);
       setHoverPage(page);
-      setHoverX(touch.clientX);
+      setHoverX(relativeX(touch.clientX));
     },
-    [pageFromX],
+    [pageFromX, relativeX],
   );
 
   const handleTouchMove = useCallback(
@@ -186,9 +194,9 @@ export default function PageScrubBar({
       const touch = e.touches[0];
       const page = pageFromX(touch.clientX);
       setHoverPage(page);
-      setHoverX(touch.clientX);
+      setHoverX(relativeX(touch.clientX));
     },
-    [pageFromX],
+    [pageFromX, relativeX],
   );
 
   const handleTouchEnd = useCallback(
@@ -204,13 +212,8 @@ export default function PageScrubBar({
     [pageFromX, onPageChange],
   );
 
-  // Calculate tooltip position relative to the bar
-  const tooltipLeft = (() => {
-    const bar = barRef.current;
-    if (!bar) return 0;
-    const rect = bar.getBoundingClientRect();
-    return hoverX - rect.left;
-  })();
+  // hoverX is already stored relative to the bar (captured at event time)
+  const tooltipLeft = hoverX;
 
   return (
     <div
@@ -238,6 +241,7 @@ export default function PageScrubBar({
             {thumbnailLoading || !thumbnailSrc ? (
               <div className="w-[120px] h-[170px] bg-white/10 animate-pulse" />
             ) : (
+              // eslint-disable-next-line @next/next/no-img-element
               <img src={thumbnailSrc} alt={`Page ${hoverPage}`} className="w-[120px] h-auto" />
             )}
           </div>

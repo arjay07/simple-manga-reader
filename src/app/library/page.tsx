@@ -79,7 +79,6 @@ export default function LibraryPage() {
                 key={s.id}
                 id={s.id}
                 title={s.title}
-                coverPath={s.cover_path}
                 volumeCount={s.volume_count}
                 kind={s.kind}
                 mangadexId={s.mangadex_id}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { DetectionResult, Panel } from '@/lib/panel-detect/types';
+import type { DetectionResult } from '@/lib/panel-detect/types';
 
 export function DetectionCanvas({
   result,
