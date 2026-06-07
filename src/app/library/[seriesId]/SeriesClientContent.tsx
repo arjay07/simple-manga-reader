@@ -4,11 +4,13 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVolumeProgress } from '@/components/Library/VolumeProgress';
 import { VolumeGrid } from '@/components/Library/VolumeGrid';
+import { ChapterList } from '@/components/Library/ChapterList';
 import { CoverImage } from './CoverImage';
 import { SeriesContinueButton } from './SeriesContinueButton';
 import { SeriesProgressBar } from './SeriesProgressBar';
 import { useAdmin } from '@/components/AdminProvider';
 import { apiUrl } from '@/lib/basePath';
+import { unitNoun } from '@/lib/unit-label';
 import type { Series, Volume } from '@/types';
 
 interface MetadataCandidate {
@@ -118,7 +120,11 @@ export function SeriesClientContent({
   }
 
   async function runBulkCoverFetch(_mangadexId: string, seriesId: number, vols: Volume[]) {
-    const total = 1 + vols.length;
+    // Chapter series have no per-unit MangaDex "volume" cover, so only the
+    // whole-series cover is fetched; each chapter falls back to its page-1
+    // thumbnail. Volume series additionally fetch a cover per volume.
+    const fetchPerUnit = series.kind === 'volume';
+    const total = fetchPerUnit ? 1 + vols.length : 1;
     let failures = 0;
     setBulkProgress({ done: 0, total });
     setBulkError(null);
@@ -136,6 +142,17 @@ export function SeriesClientContent({
       console.error('Series cover fetch error:', err);
     }
     setBulkProgress({ done: 1, total });
+
+    if (!fetchPerUnit) {
+      setBulkProgress(null);
+      if (failures === total) {
+        setBulkError('Cover fetch failed. MangaDex may be unreachable.');
+        setTimeout(() => setBulkError(null), 8000);
+      } else {
+        router.refresh();
+      }
+      return;
+    }
 
     for (let i = 0; i < vols.length; i++) {
       const vol = vols[i];
@@ -188,13 +205,15 @@ export function SeriesClientContent({
             <p className="mt-3 text-sm text-foreground/80">{series.description}</p>
           )}
           <p className="mt-2 text-sm text-muted">
-            {volumes.length} {volumes.length === 1 ? 'volume' : 'volumes'}
+            {volumes.length} {unitNoun(series.kind).toLowerCase()}
+            {volumes.length === 1 ? '' : 's'}
           </p>
 
           {volumes.length > 0 && (
             <div className="mt-4 space-y-3">
               <SeriesContinueButton
                 seriesId={series.id}
+                kind={series.kind}
                 volumes={volumes}
                 progressMap={progressMap}
               />
@@ -321,12 +340,22 @@ export function SeriesClientContent({
       )}
 
       <section className="mt-8">
-        <h2 className="mb-4 text-xl font-semibold text-foreground">Volumes</h2>
+        <h2 className="mb-4 text-xl font-semibold text-foreground">{unitNoun(series.kind)}s</h2>
         {volumes.length === 0 ? (
-          <p className="text-muted">No volumes found for this series.</p>
+          <p className="text-muted">
+            No {unitNoun(series.kind).toLowerCase()}s found for this series.
+          </p>
+        ) : series.kind === 'chapter' ? (
+          <ChapterList
+            seriesId={series.id}
+            kind={series.kind}
+            volumes={volumes}
+            progressMap={progressMap}
+          />
         ) : (
           <VolumeGrid
             seriesId={series.id}
+            kind={series.kind}
             mangadexId={series.mangadex_id}
             volumes={volumes}
             progressMap={progressMap}

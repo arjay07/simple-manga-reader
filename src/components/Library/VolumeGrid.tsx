@@ -3,15 +3,18 @@
 import Link from 'next/link';
 import { VolumeThumbnail } from './VolumeThumbnail';
 import { VolumeProgressBar, useVolumeProgress, type ProgressMap } from './VolumeProgress';
-import type { Volume } from '@/types';
+import { unitLabel } from '@/lib/unit-label';
+import type { SeriesKind, Volume } from '@/types';
 
 export function VolumeGrid({
   seriesId,
+  kind,
   mangadexId,
   volumes,
   progressMap: externalProgressMap,
 }: {
   seriesId: number;
+  kind: SeriesKind;
   mangadexId: string | null;
   volumes: Volume[];
   progressMap?: ProgressMap;
@@ -57,11 +60,12 @@ export function VolumeGrid({
               seriesId={seriesId}
               volumeId={volume.id}
               volumeNumber={volume.volume_number}
+              kind={kind}
               mangadexId={mangadexId}
             />
             <h3 className="truncate text-sm font-medium text-foreground">{volume.title}</h3>
             {volume.volume_number != null && (
-              <p className="text-xs text-muted">Vol. {volume.volume_number}</p>
+              <p className="text-xs text-muted">{unitLabel(kind, volume.volume_number)}</p>
             )}
             {!progress && volume.page_count != null && (
               <p className="text-xs text-muted-foreground">{volume.page_count} pages</p>

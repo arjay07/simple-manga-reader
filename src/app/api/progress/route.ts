@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       const progress = db
         .prepare(
           `
-        SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title
+        SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title, s.kind as series_kind
         FROM reading_progress rp
         JOIN volumes v ON rp.volume_id = v.id
         JOIN series s ON v.series_id = s.id
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const progress = db
       .prepare(
         `
-      SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title
+      SELECT rp.*, v.title as volume_title, v.volume_number, v.page_count, v.series_id, s.title as series_title, s.kind as series_kind
       FROM reading_progress rp
       JOIN volumes v ON rp.volume_id = v.id
       JOIN series s ON v.series_id = s.id

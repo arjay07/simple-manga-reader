@@ -11,6 +11,7 @@ import VerticalScrollView from './VerticalScrollView';
 import EndOfVolumeOverlay from './EndOfVolumeOverlay';
 import { apiUrl } from '@/lib/basePath';
 import { STORAGE_KEYS } from '@/lib/constants';
+import type { SeriesKind } from '@/types';
 import type { Panel, PageType } from '@/lib/panel-detect/types';
 import { computeStopGeometry } from '@/lib/reader/panel-zoom';
 import {
@@ -37,6 +38,7 @@ interface MangaReaderProps {
   seriesId: string;
   volumeId: string;
   format: DocumentFormat;
+  kind: SeriesKind;
   initialPage?: number;
   profileId?: number;
   title?: string;
@@ -52,6 +54,7 @@ export default function MangaReader({
   seriesId,
   volumeId,
   format,
+  kind,
   initialPage = 1,
   profileId,
   title = '',
@@ -3524,6 +3527,7 @@ export default function MangaReader({
       {volumeOverlay && (
         <EndOfVolumeOverlay
           seriesId={seriesId}
+          kind={kind}
           direction={volumeOverlay}
           nextVolumeId={nextVolumeId}
           nextVolumeTitle={nextVolumeTitle}

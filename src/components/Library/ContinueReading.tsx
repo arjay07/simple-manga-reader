@@ -5,6 +5,7 @@ import { useProfile } from '@/components/ProfileProvider';
 import { useFetch } from '@/hooks/useFetch';
 import { VolumeThumbnail } from './VolumeThumbnail';
 import { apiUrl } from '@/lib/basePath';
+import { unitLabel } from '@/lib/unit-label';
 import type { ProgressEntryWithSeries as ProgressEntry } from '@/types';
 
 export function ContinueReading() {
@@ -39,7 +40,7 @@ export function ContinueReading() {
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">{hero.series_title}</p>
           <p className="mt-0.5 text-sm text-muted">
-            Vol. {hero.volume_number}
+            {unitLabel(hero.series_kind, hero.volume_number)}
             {heroProgress != null && (
               <span className="ml-2 text-muted">
                 {hero.current_page} / {hero.page_count} ({heroProgress}%)
@@ -77,12 +78,15 @@ export function ContinueReading() {
                   seriesId={entry.series_id}
                   volumeId={entry.volume_id}
                   volumeNumber={entry.volume_number}
+                  kind={entry.series_kind}
                 />
                 <div className="px-3 pb-3">
                   <p className="truncate text-sm font-medium text-foreground">
                     {entry.series_title}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted">Vol. {entry.volume_number}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {unitLabel(entry.series_kind, entry.volume_number)}
+                  </p>
                   {entry.page_count != null && (
                     <div className="mt-1.5">
                       <div className="h-1 w-full rounded-full bg-border overflow-hidden">

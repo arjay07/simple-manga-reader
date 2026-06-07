@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractVolumeNumber } from '@/lib/scanner';
+import { extractVolumeNumber, extractChapterNumber } from '@/lib/scanner';
 
 describe('extractVolumeNumber', () => {
   it('parses Vol01.pdf', () => {
@@ -36,5 +36,38 @@ describe('extractVolumeNumber', () => {
 
   it('falls back to trailing digits before extension', () => {
     expect(extractVolumeNumber('Series 12.pdf')).toBe(12);
+  });
+});
+
+describe('extractChapterNumber', () => {
+  it('parses a whole chapter number', () => {
+    expect(extractChapterNumber('Chapter 7.cbz')).toBe(7);
+  });
+
+  it('parses a decimal chapter number', () => {
+    expect(extractChapterNumber('Ch 10.5.cbz')).toBe(10.5);
+  });
+
+  it('parses the abbreviated "Ch." form', () => {
+    expect(extractChapterNumber('Ch. 3.pdf')).toBe(3);
+  });
+
+  it('parses a decimal after a # marker', () => {
+    expect(extractChapterNumber('#3.1.cbz')).toBe(3.1);
+  });
+
+  it('falls back to a trailing decimal before the extension', () => {
+    expect(extractChapterNumber('My Series 12.5.cbz')).toBe(12.5);
+  });
+
+  it('returns null when no number is present', () => {
+    expect(extractChapterNumber('Omake Special.cbz')).toBeNull();
+  });
+
+  it('sorts decimals between whole chapters', () => {
+    const nums = ['Ch 11.cbz', 'Ch 10.5.cbz', 'Ch 10.cbz']
+      .map((f) => extractChapterNumber(f) as number)
+      .sort((a, b) => a - b);
+    expect(nums).toEqual([10, 10.5, 11]);
   });
 });

@@ -2,9 +2,12 @@
 
 import { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { unitNoun } from '@/lib/unit-label';
+import type { SeriesKind } from '@/types';
 
 interface EndOfVolumeOverlayProps {
   seriesId: string;
+  kind: SeriesKind;
   direction: 'end' | 'start';
   nextVolumeId?: string;
   nextVolumeTitle?: string;
@@ -15,6 +18,7 @@ interface EndOfVolumeOverlayProps {
 
 export default function EndOfVolumeOverlay({
   seriesId,
+  kind,
   direction,
   nextVolumeId,
   nextVolumeTitle,
@@ -27,6 +31,8 @@ export default function EndOfVolumeOverlay({
   const isEnd = direction === 'end';
   const targetId = isEnd ? nextVolumeId : prevVolumeId;
   const targetTitle = isEnd ? nextVolumeTitle : prevVolumeTitle;
+  const noun = unitNoun(kind);
+  const nounLower = noun.toLowerCase();
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -60,7 +66,9 @@ export default function EndOfVolumeOverlay({
           <>
             <div className="mb-2 text-2xl">&#10003;</div>
             <h3 className="mb-1 text-lg font-semibold">Series Complete</h3>
-            <p className="mb-5 text-sm text-white/60">You&apos;ve finished the last volume.</p>
+            <p className="mb-5 text-sm text-white/60">
+              You&apos;ve finished the last {nounLower}.
+            </p>
           </>
         )}
 
@@ -73,7 +81,7 @@ export default function EndOfVolumeOverlay({
 
         {!isEnd && targetId && (
           <>
-            <p className="mb-1 text-sm text-white/60">Previous volume</p>
+            <p className="mb-1 text-sm text-white/60">Previous {nounLower}</p>
             <h3 className="mb-5 text-lg font-semibold">{targetTitle}</h3>
           </>
         )}
@@ -87,7 +95,7 @@ export default function EndOfVolumeOverlay({
               }}
               className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-accent/80 cursor-pointer"
             >
-              {isEnd ? 'Continue Reading' : 'Go to Previous Volume'}
+              {isEnd ? 'Continue Reading' : `Go to Previous ${noun}`}
             </button>
           )}
           <button

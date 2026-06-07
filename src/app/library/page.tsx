@@ -4,6 +4,7 @@ import { SeriesCard } from '@/components/Library/SeriesCard';
 import { ContinueReading } from '@/components/Library/ContinueReading';
 import { HeaderMenu } from '@/components/HeaderMenu';
 import { GDriveOverlay } from '@/components/GDrive/GDriveOverlay';
+import type { SeriesKind } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ interface SeriesRow {
   folder_name: string;
   cover_path: string | null;
   mangadex_id: string | null;
+  kind: SeriesKind;
   volume_count: number;
 }
 
@@ -79,6 +81,7 @@ export default function LibraryPage() {
                 title={s.title}
                 coverPath={s.cover_path}
                 volumeCount={s.volume_count}
+                kind={s.kind}
                 mangadexId={s.mangadex_id}
               />
             ))}

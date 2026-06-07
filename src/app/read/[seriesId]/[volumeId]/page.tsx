@@ -2,10 +2,12 @@ import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/db';
 import MangaReader from '@/components/Reader/MangaReader';
-import type { Volume } from '@/types';
+import { unitLabel } from '@/lib/unit-label';
+import type { SeriesKind, Volume } from '@/types';
 
 type VolumeRow = Volume & {
   series_title: string;
+  series_kind: SeriesKind;
   reading_direction: string | null;
   reader_settings: string | null;
 };
@@ -23,7 +25,7 @@ export default async function ReaderPage({
   const db = getDb();
   const volume = db
     .prepare(
-      `SELECT v.*, s.title as series_title, p.reading_direction, p.reader_settings
+      `SELECT v.*, s.title as series_title, s.kind as series_kind, p.reading_direction, p.reader_settings
        FROM volumes v
        JOIN series s ON s.id = v.series_id
        LEFT JOIN profiles p ON p.id = ?
@@ -62,6 +64,19 @@ export default async function ReaderPage({
           | undefined)
       : undefined;
 
+  // For chapter series the stored title is a raw filename (e.g. "Chapter-001"),
+  // so show a human label ("Ch. 2") in the next/prev overlay instead. Volume
+  // series keep their existing title wording unchanged.
+  const adjacentTitle = (
+    v: { title: string; volume_number: number } | undefined,
+  ): string | undefined => {
+    if (!v) return undefined;
+    if (volume.series_kind === 'chapter' && v.volume_number != null) {
+      return unitLabel('chapter', v.volume_number);
+    }
+    return v.title;
+  };
+
   let initialPage = 1;
   if (profileId) {
     const progress = db
@@ -72,9 +87,15 @@ export default async function ReaderPage({
     }
   }
 
+  // Chapter titles are raw filenames; show "Ch. N" in the reader chrome instead.
+  // Volume series keep their stored title verbatim (unchanged behavior).
+  const unitTitle =
+    volume.series_kind === 'chapter' && volume.volume_number != null
+      ? unitLabel('chapter', volume.volume_number)
+      : volume.title;
   const displayTitle = volume.series_title
-    ? `${volume.series_title} - ${volume.title}`
-    : volume.title;
+    ? `${volume.series_title} - ${unitTitle}`
+    : unitTitle;
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -82,15 +103,16 @@ export default async function ReaderPage({
         seriesId={seriesId}
         volumeId={volumeId}
         format={volume.format}
+        kind={volume.series_kind}
         initialPage={initialPage}
         profileId={profileId}
         title={displayTitle}
         initialSettings={volume.reader_settings ?? undefined}
         fallbackDirection={volume.reading_direction ?? undefined}
         nextVolumeId={nextVolume ? String(nextVolume.id) : undefined}
-        nextVolumeTitle={nextVolume?.title}
+        nextVolumeTitle={adjacentTitle(nextVolume)}
         prevVolumeId={prevVolume ? String(prevVolume.id) : undefined}
-        prevVolumeTitle={prevVolume?.title}
+        prevVolumeTitle={adjacentTitle(prevVolume)}
       />
     </div>
   );

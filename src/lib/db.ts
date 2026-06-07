@@ -30,6 +30,7 @@ export const SCHEMA_SQL = `
       author TEXT,
       description TEXT,
       mangadex_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'volume',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -38,7 +39,9 @@ export const SCHEMA_SQL = `
       series_id INTEGER REFERENCES series(id),
       title TEXT NOT NULL,
       filename TEXT NOT NULL,
-      volume_number INTEGER,
+      -- REAL so chapter series can hold fractional numbers (e.g. 10.5). Existing
+      -- whole-number volumes read back identically (3 == 3.0); no data migration.
+      volume_number REAL,
       page_count INTEGER,
       format TEXT NOT NULL DEFAULT 'pdf',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -133,6 +136,13 @@ export function getDb(): Database.Database {
   // Migration: add is_child column if missing (existing DBs)
   if (!columns.some((c) => c.name === 'is_child')) {
     db.exec(`ALTER TABLE profiles ADD COLUMN is_child INTEGER DEFAULT 0`);
+  }
+
+  // Migration: add series.kind column if missing (existing DBs). Pre-existing
+  // series predate chapter support, so they backfill to 'volume' and render
+  // exactly as before.
+  if (!seriesColumns.some((c) => c.name === 'kind')) {
+    db.exec(`ALTER TABLE series ADD COLUMN kind TEXT NOT NULL DEFAULT 'volume'`);
   }
 
   // Migration: add volumes.format column if missing (existing DBs).

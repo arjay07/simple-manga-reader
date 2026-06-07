@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useProfile } from '@/components/ProfileProvider';
 import type { ProgressMap } from '@/components/Library/VolumeProgress';
-import type { Volume as FullVolume } from '@/types';
+import { unitLabel } from '@/lib/unit-label';
+import type { SeriesKind, Volume as FullVolume } from '@/types';
 
 type Volume = Pick<FullVolume, 'id' | 'volume_number' | 'page_count'>;
 
@@ -83,10 +84,12 @@ function getReadingDestination(
 
 export function SeriesContinueButton({
   seriesId,
+  kind,
   volumes,
   progressMap,
 }: {
   seriesId: number;
+  kind: SeriesKind;
   volumes: Volume[];
   progressMap: ProgressMap;
 }) {
@@ -121,8 +124,8 @@ export function SeriesContinueButton({
   const subtitle =
     destination.label === 'continue' && destination.volumeNumber != null
       ? destination.page > 1
-        ? `Vol. ${destination.volumeNumber} \u00B7 Page ${destination.page}`
-        : `Vol. ${destination.volumeNumber}`
+        ? `${unitLabel(kind, destination.volumeNumber)} \u00B7 Page ${destination.page}`
+        : unitLabel(kind, destination.volumeNumber)
       : null;
 
   return (
