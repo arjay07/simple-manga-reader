@@ -2,16 +2,14 @@ import { getDb } from './db';
 import { assignReadingOrder } from './panel-detect/reading-order';
 import type { Panel, RawPanel, PageType } from './panel-detect/types';
 
+/** Columns selected by every panel-data read query; `PanelDataRow` mirrors it. */
+const PAGE_COLUMNS = 'page_number, panels_json, page_type, processing_time_ms';
+
 export interface PanelDataRow {
-  id: number;
-  volume_id: number;
   page_number: number;
   panels_json: string;
-  reading_tree_json: string | null;
   page_type: string;
   processing_time_ms: number | null;
-  confidence_threshold: number | null;
-  created_at: string;
 }
 
 export interface PanelDataPage {
@@ -77,8 +75,7 @@ export function getPanelDataForVolume(volumeId: number): PanelDataPage[] {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
-     FROM panel_data WHERE volume_id = ? ORDER BY page_number`,
+      `SELECT ${PAGE_COLUMNS} FROM panel_data WHERE volume_id = ? ORDER BY page_number`,
     )
     .all(volumeId) as PanelDataRow[];
 
@@ -89,8 +86,7 @@ export function getPanelDataForPage(volumeId: number, pageNumber: number): Panel
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
-     FROM panel_data WHERE volume_id = ? AND page_number = ?`,
+      `SELECT ${PAGE_COLUMNS} FROM panel_data WHERE volume_id = ? AND page_number = ?`,
     )
     .get(volumeId, pageNumber) as PanelDataRow | undefined;
 
@@ -117,8 +113,7 @@ export function getPanelDataForPages(
   const placeholders = capped.map(() => '?').join(', ');
   const rows = db
     .prepare(
-      `SELECT page_number, panels_json, reading_tree_json, page_type, processing_time_ms
-     FROM panel_data WHERE volume_id = ? AND page_number IN (${placeholders})
+      `SELECT ${PAGE_COLUMNS} FROM panel_data WHERE volume_id = ? AND page_number IN (${placeholders})
      ORDER BY page_number`,
     )
     .all(volumeId, ...capped) as PanelDataRow[];

@@ -26,9 +26,9 @@
 
 ## 4. Edge cleanups (D6)
 
-- [ ] 4.1 `panel-data.ts`: extract a shared SELECT column list constant (`page_number, panels_json, page_type, processing_time_ms`) used by all three read queries; drop `reading_tree_json` from queries; narrow `PanelDataRow` to exactly the selected columns
-- [ ] 4.2 `MangaReader.tsx`: replace the local `PanelDataPage` interface with a type-only import from `@/lib/panel-data` (keep the local `PanelDataResponse` envelope type)
-- [ ] 4.3 Verify: `npm test`, `npm run build`, `npm run lint` all green
+- [x] 4.1 `panel-data.ts`: extract a shared SELECT column list constant (`page_number, panels_json, page_type, processing_time_ms`) used by all three read queries; drop `reading_tree_json` from queries; narrow `PanelDataRow` to exactly the selected columns
+- [x] 4.2 `MangaReader.tsx`: replace the local `PanelDataPage` interface with a type-only import from `@/lib/panel-data` (keep the local `PanelDataResponse` envelope type)
+- [x] 4.3 Verify: `npm test`, `npm run build`, `npm run lint` all green
 
 ## 5. Documentation
 
