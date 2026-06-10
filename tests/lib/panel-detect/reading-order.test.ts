@@ -78,6 +78,26 @@ function randomLayout(rng: () => number): RawPanel[] {
   return panels;
 }
 
+// Large boxes confined to start in the top-left region so they mutually
+// overlap: most of these layouts defeat the cut search on both axes and
+// exercise the inseparable fallback, which the generator above rarely hits.
+function overlappingLayout(rng: () => number): RawPanel[] {
+  const count = 2 + Math.floor(rng() * 5); // 2..6 panels
+  const panels: RawPanel[] = [];
+  for (let i = 0; i < count; i++) {
+    const x = rng() * 0.4;
+    const y = rng() * 0.4;
+    panels.push({
+      x,
+      y,
+      width: 0.4 + rng() * (1 - x - 0.4),
+      height: 0.4 + rng() * (1 - y - 0.4),
+      confidence: 0.25 + rng() * 0.74,
+    });
+  }
+  return panels;
+}
+
 describe('assignReadingOrder — structural invariants', () => {
   const rng = mulberry32(0x5eed);
   const layouts = Array.from({ length: 200 }, () => randomLayout(rng));
@@ -103,6 +123,39 @@ describe('assignReadingOrder — structural invariants', () => {
       const panels = assignReadingOrder(layout);
       const orders = panels.map((p) => p.readingOrder).sort((a, b) => a - b);
       expect(orders).toEqual(Array.from({ length: layout.length }, (_, i) => i + 1));
+    }
+  });
+});
+
+describe('assignReadingOrder — permutation invariance', () => {
+  // Ids are assigned by input index, so they legitimately differ across
+  // permutations; the invariant is the *geometric* reading sequence.
+  const geoKey = (p: RawPanel): string => `${p.x},${p.y},${p.width},${p.height}`;
+  const geoSequence = (layout: RawPanel[]): string[] => assignReadingOrder(layout).map(geoKey);
+
+  function permutations(layout: RawPanel[], rng: () => number): RawPanel[][] {
+    const reversed = [...layout].reverse();
+    const k = 1 + Math.floor(rng() * Math.max(1, layout.length - 1));
+    const rotated = [...layout.slice(k), ...layout.slice(0, k)];
+    const shuffled = [...layout];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return [reversed, rotated, shuffled];
+  }
+
+  it('geometric reading sequence is identical across input permutations', () => {
+    const rng = mulberry32(0xfeed);
+    const layouts = [
+      ...Array.from({ length: 100 }, () => randomLayout(rng)),
+      ...Array.from({ length: 100 }, () => overlappingLayout(rng)),
+    ];
+    for (const layout of layouts) {
+      const baseline = geoSequence(layout);
+      for (const perm of permutations(layout, rng)) {
+        expect(geoSequence(perm)).toEqual(baseline);
+      }
     }
   });
 });

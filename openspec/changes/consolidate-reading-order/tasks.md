@@ -20,9 +20,9 @@
 
 ## 3. Permutation-invariance property test (D4)
 
-- [ ] 3.1 In the structural-invariants suite, add a heavily-overlapping layout generator (large boxes biased to mutual overlap, seeded) alongside the existing one
-- [ ] 3.2 Add the invariant test: for each layout from both generators, run `assignReadingOrder` on deterministic permutations (reverse, rotate-by-k, seeded shuffle) and assert the geometric reading sequence (key: `x,y,width,height`) is identical across permutations
-- [ ] 3.3 Sanity check: temporarily revert task 2.1 locally to confirm the new test fails against the old comparator, then restore
+- [x] 3.1 In the structural-invariants suite, add a heavily-overlapping layout generator (large boxes biased to mutual overlap, seeded) alongside the existing one
+- [x] 3.2 Add the invariant test: for each layout from both generators, run `assignReadingOrder` on deterministic permutations (reverse, rotate-by-k, seeded shuffle) and assert the geometric reading sequence (key: `x,y,width,height`) is identical across permutations
+- [x] 3.3 Sanity check: temporarily revert task 2.1 locally to confirm the new test fails against the old comparator, then restore (confirmed: 1 failed with the old sort, 24/24 pass with the tournament)
 
 ## 4. Edge cleanups (D6)
 
