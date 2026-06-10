@@ -12,7 +12,8 @@ import EndOfVolumeOverlay from './EndOfVolumeOverlay';
 import { apiUrl } from '@/lib/basePath';
 import { STORAGE_KEYS } from '@/lib/constants';
 import type { SeriesKind } from '@/types';
-import type { Panel, PageType } from '@/lib/panel-detect/types';
+import type { Panel } from '@/lib/panel-detect/types';
+import type { PanelDataPage } from '@/lib/panel-data';
 import { computeStopGeometry } from '@/lib/reader/panel-zoom';
 import {
   loadDocumentSource,
@@ -21,12 +22,8 @@ import {
   type DocumentSource,
 } from './document-source';
 
-interface PanelDataPage {
-  pageNumber: number;
-  panels: Panel[];
-  pageType: PageType;
-}
-
+// Envelope shape of GET /api/panel-data/[volumeId]; pages carry the canonical
+// PanelDataPage from @/lib/panel-data.
 interface PanelDataResponse {
   pages: PanelDataPage[];
   totalPages: number;
