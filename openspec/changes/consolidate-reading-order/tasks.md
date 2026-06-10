@@ -32,4 +32,4 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Update `CLAUDE.md` panel-detection section: remove mentions of `reading_tree_json` / reading-tree snapshot semantics; note ordering is permutation-invariant and the inseparable fallback uses tournament source selection
+- [x] 5.1 Update `CLAUDE.md` panel-detection section: remove mentions of `reading_tree_json` / reading-tree snapshot semantics; note ordering is permutation-invariant and the inseparable fallback uses tournament source selection
