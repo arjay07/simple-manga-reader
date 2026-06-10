@@ -217,8 +217,9 @@ exports[`assignReadingOrder — golden snapshot > full-width-strip-vs-side outpu
     },
   ],
   "readingTree": {
-    "at": 0.25,
-    "bottom": {
+    "at": 0.49,
+    "cut": "vertical",
+    "left": {
       "at": 0.375,
       "bottom": {
         "panel": "p3",
@@ -228,8 +229,7 @@ exports[`assignReadingOrder — golden snapshot > full-width-strip-vs-side outpu
         "panel": "p1",
       },
     },
-    "cut": "horizontal",
-    "top": {
+    "right": {
       "panel": "p2",
     },
   },

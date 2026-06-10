@@ -20,12 +20,21 @@ interface OrderResult {
  * Strategy: recursive XY-cut (binary space partition). At each step we score
  * every candidate cut line and take the best *separating* one:
  *
- *   1. Prefer a HORIZONTAL cut (a full-width split). Manga reads row by row,
- *      so the group above the cut is read entirely before the group below.
- *   2. Otherwise take a VERTICAL cut (a full-height split). RTL: the group to
+ *   1. Tall right-hand column first: when a clean vertical cut isolates a
+ *      single panel on the right spanning effectively the full height of the
+ *      region (see {@link isTallRightColumn}), take it — RTL reads that column
+ *      before the top strip and rows to its left, so it must beat the
+ *      horizontal preference below.
+ *   2. Otherwise prefer a HORIZONTAL cut (a full-width split). Manga reads row
+ *      by row, so the group above the cut is read entirely before the group
+ *      below.
+ *   3. Otherwise take a VERTICAL cut (a full-height split). RTL: the group to
  *      the RIGHT of the cut is read entirely before the group to the left.
- *   3. If no valid cut exists on either axis (genuinely interlocking boxes),
- *      emit the region in deterministic geometric order so recursion terminates.
+ *   4. If no valid cut exists on either axis (genuinely overlapping boxes —
+ *      e.g. a slanted row whose diagonal divider makes the boxes overlap both
+ *      axes), fall back to a per-pair rule keyed on vertical overlap (see
+ *      {@link inseparable} / {@link isRow}): a slanted row stays together and
+ *      reads right-to-left, while offset/tucked pairs read top-first.
  *
  * A candidate cut is scored by how much it straddles panels, measured *relative
  * to each panel's own extent* on the cut axis (see {@link bestValidCut}): a cut
@@ -102,8 +111,15 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
     return { panel: panels[0].id };
   }
 
+  // Tall right-hand column exception: a clean vertical cut that isolates a
+  // single, effectively full-height panel on the right wins over the row
+  // split. RTL reads that column before the strip/rows to its left, so the
+  // horizontal preference below must not peel a top strip off first.
+  const v = bestValidCut(panels, 'x', ro.maxStraddleRatio);
+  const columnFirst = v !== null && isTallRightColumn(v, panels, ro);
+
   // Prefer the least-straddle horizontal cut: manga reads row by row, top first.
-  const h = bestValidCut(panels, 'y', ro.maxStraddleRatio);
+  const h = columnFirst ? null : bestValidCut(panels, 'y', ro.maxStraddleRatio);
   if (h) {
     return {
       cut: 'horizontal',
@@ -114,7 +130,6 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
   }
 
   // Otherwise the least-straddle vertical cut: RTL, right group first.
-  const v = bestValidCut(panels, 'x', ro.maxStraddleRatio);
   if (v) {
     return {
       cut: 'vertical',
@@ -124,9 +139,23 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
     };
   }
 
-  // Genuinely inseparable region (mutual overlap, no dominant axis): emit in
-  // deterministic geometric order so the recursion still terminates.
+  // Genuinely inseparable region (mutual overlap, no dominant axis): order by
+  // the vertical-overlap row rule so the recursion still terminates.
   return inseparable(panels, ro, out);
+}
+
+/**
+ * Does `cut` (a vertical cut) peel off a single right-hand panel that spans
+ * effectively the full height of the region? Requires the cut to be clean
+ * (zero straddle) so a column merely *near* a gutter cannot hijack a genuine
+ * row layout — the verified row/banner pages all fail one of the three
+ * conditions (multi-panel right group, straddled cut, or a short right panel).
+ */
+function isTallRightColumn(cut: Cut, panels: PanelWithId[], ro: ReadingOrderConfig): boolean {
+  if (cut.maxClipped > EPS || cut.second.length !== 1) return false;
+  const top = Math.min(...panels.map((p) => lo(p, 'y')));
+  const bottom = Math.max(...panels.map((p) => hi(p, 'y')));
+  return cut.second[0].height >= ro.tallColumnMinHeightRatio * (bottom - top);
 }
 
 /**
@@ -205,25 +234,87 @@ function bestValidCut(panels: PanelWithId[], axis: Axis, maxStraddleRatio: numbe
   return best;
 }
 
+interface Centroid {
+  p: PanelWithId;
+  cx: number;
+  cy: number;
+}
+
 /**
- * Terminal for a region no cut can separate (true mutual overlap with no
- * dominant axis). Emits the panels in deterministic geometric order —
- * top-to-bottom, then right-to-left — via a binary horizontal split, so the
- * reading tree stays well-formed and the recursion terminates.
+ * Do two panels sit beside each other as a "row" (read right-to-left) rather
+ * than "stacked" (read top first)? Two conditions, both required:
+ *
+ *   1. The shorter panel sees the other beside it for most of its height —
+ *      their vertical overlap exceeds `rowOverlapMinRatio` of the shorter
+ *      panel's height. A slanted row's boxes overlap in Y almost entirely even
+ *      when a diagonal divider makes them overlap in X too, while a banner
+ *      over the row beneath it (or a diagonally offset pair, which reads
+ *      top-left first) overlaps only fractionally.
+ *   2. The majority of the right panel's width extends beyond the left
+ *      panel's right edge — the same majority-snap principle
+ *      {@link evaluateCut} uses. When most of the right panel sits over the
+ *      left one's X range it is tucked beside a dominant neighbour, and the
+ *      pair reads top-first like a stack, not right-first like a row.
+ */
+function isRow(a: PanelWithId, b: PanelWithId, ro: ReadingOrderConfig): boolean {
+  const yOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  if (yOverlap <= ro.rowOverlapMinRatio * Math.min(a.height, b.height)) return false;
+  const right = a.x + a.width / 2 >= b.x + b.width / 2 ? a : b;
+  const xOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  return xOverlap < 0.5 * right.width;
+}
+
+/**
+ * Terminal for a region no axis-aligned cut can cleanly separate — e.g. a
+ * full-width panel whose box overlaps the row below because of a slanted edge,
+ * which clips a neighbour just past the straddle budget and defeats the cut
+ * search on both axes.
+ *
+ * Order the panels with a pairwise rule that keys on **vertical overlap**, the
+ * signal that survives the overlap which defeated the cut search:
+ *   - panels that overlap in Y for most of the shorter one's height are a row
+ *     → right-to-left, the rightmost (larger centroid-X) first;
+ *   - otherwise they are stacked → the higher one (smaller centroid-Y) reads
+ *     first, which also reads a diagonally offset pair top-left first.
+ *
+ * Centroid-Y alone cannot distinguish a slanted row (small Y spread, must read
+ * RTL) from a stacked pair (similar small Y spread, must read top-first); the
+ * Y-overlap test does. An earlier X-overlap rule failed both ways on slanted
+ * pages: a diagonal divider's X overlap marked a true row as stacked, and a
+ * clean X split marked a diagonally offset stacked pair as a row.
  */
 function inseparable(
   panels: PanelWithId[],
   ro: ReadingOrderConfig,
   out: string[],
 ): ReadingTreeNode {
-  const sorted = [...panels].sort((a, b) => a.y - b.y || b.x - a.x);
-  const mid = Math.floor(sorted.length / 2);
-  const top = sorted.slice(0, mid);
-  const bottom = sorted.slice(mid);
+  const items: Centroid[] = panels.map((p) => ({
+    p,
+    cx: p.x + p.width / 2,
+    cy: p.y + p.height / 2,
+  }));
+  const sorted = [...items].sort((a, b) => (isRow(a.p, b.p, ro) ? b.cx - a.cx : a.cy - b.cy));
+  for (const item of sorted) out.push(item.p.id);
+  return chainTree(sorted, ro);
+}
+
+/** Right/down-leaning tree mirroring the comparator (cosmetic; order is authoritative). */
+function chainTree(items: Centroid[], ro: ReadingOrderConfig): ReadingTreeNode {
+  if (items.length === 1) return { panel: items[0].p.id };
+  const [first, second, ...tail] = items;
+  const rest = chainTree([second, ...tail], ro);
+  if (isRow(first.p, second.p, ro)) {
+    return {
+      cut: 'vertical',
+      at: (first.cx + second.cx) / 2,
+      right: { panel: first.p.id },
+      left: rest,
+    };
+  }
   return {
     cut: 'horizontal',
-    at: (hi(top[top.length - 1], 'y') + lo(bottom[0], 'y')) / 2,
-    top: xyCut(top, ro, out),
-    bottom: xyCut(bottom, ro, out),
+    at: (first.cy + second.cy) / 2,
+    top: { panel: first.p.id },
+    bottom: rest,
   };
 }

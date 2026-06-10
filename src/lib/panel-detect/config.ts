@@ -57,6 +57,20 @@ export interface ReadingOrderConfig {
    * behaviour. When no valid cut exists on either axis the region is emitted in
    * deterministic geometric order. Default 0.25. */
   maxStraddleRatio: number;
+  /** A clean (zero-straddle) vertical cut that isolates a SINGLE panel on the
+   * right is taken before any horizontal row split when that panel spans at
+   * least this fraction of the region's height — an effectively full-height
+   * right-hand column reads first under RTL, even when a shorter top strip
+   * sits to its left. Larger = fewer layouts qualify as a column. 0.75 sits
+   * between the tallest verified non-column (≤0.55 of region height) and the
+   * confirmed column page (0.81). Default 0.75. */
+  tallColumnMinHeightRatio: number;
+  /** In the no-valid-cut fallback, two panels read as a ROW (right-to-left)
+   * when their vertical overlap exceeds this fraction of the shorter panel's
+   * height; otherwise they read stacked (higher first). Smaller = more pairs
+   * treated as rows. 0.75 sits between confirmed stacked pairs (≤0.60) and
+   * confirmed row pairs (≥0.99) across the verified real pages. Default 0.75. */
+  rowOverlapMinRatio: number;
 }
 
 export interface ContourConfig {
@@ -98,6 +112,8 @@ export const DEFAULT_PANEL_DETECT_CONFIG: PanelDetectConfig = {
   },
   readingOrder: {
     maxStraddleRatio: 0.25,
+    tallColumnMinHeightRatio: 0.75,
+    rowOverlapMinRatio: 0.75,
   },
   contour: {
     grayscaleThreshold: 200,
