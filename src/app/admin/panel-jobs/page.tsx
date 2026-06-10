@@ -71,7 +71,6 @@ interface QueueState {
 interface PreviewData {
   pageNumber: number;
   panels: Panel[];
-  readingTree: unknown;
   pageType: string;
   processingTimeMs: number | null;
   pageImage: string;
@@ -620,7 +619,6 @@ function PanelJobsPage() {
                   <DetectionCanvas
                     result={{
                       panels: previewData.panels,
-                      readingTree: null,
                       pageType: previewData.pageType as 'panels' | 'cover' | 'full-bleed' | 'blank',
                       processingTimeMs: previewData.processingTimeMs ?? 0,
                       method: 'ml',

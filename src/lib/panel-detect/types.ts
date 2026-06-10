@@ -12,24 +12,8 @@ export interface Panel {
   confidence: number;
 }
 
-export interface ReadingTreeLeaf {
-  panel: string; // panel id
-}
-
-export interface ReadingTreeBranch {
-  cut: 'horizontal' | 'vertical';
-  at: number; // normalized 0-1 position of the cut
-  top?: ReadingTreeNode;
-  bottom?: ReadingTreeNode;
-  left?: ReadingTreeNode;
-  right?: ReadingTreeNode;
-}
-
-export type ReadingTreeNode = ReadingTreeLeaf | ReadingTreeBranch;
-
 export interface DetectionResult {
   panels: Panel[];
-  readingTree: ReadingTreeNode | null;
   pageType: PageType;
   processingTimeMs: number;
   method: DetectionMethod;

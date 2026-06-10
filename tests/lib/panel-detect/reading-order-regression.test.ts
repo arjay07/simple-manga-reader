@@ -12,15 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { assignReadingOrder } from '@/lib/panel-detect/reading-order';
 import { READING_ORDER_FIXTURES } from './reading-order-fixtures';
 
-function orderedIds(panels: ReturnType<typeof assignReadingOrder>['panels']): string[] {
+function orderedIds(panels: ReturnType<typeof assignReadingOrder>): string[] {
   return [...panels].sort((a, b) => a.readingOrder - b.readingOrder).map((p) => p.id);
 }
 
 describe('assignReadingOrder — real-page regression', () => {
   for (const fx of READING_ORDER_FIXTURES) {
     const assertCorrect = () => {
-      const result = assignReadingOrder(fx.panels);
-      expect(orderedIds(result.panels)).toEqual(fx.expectedOrder);
+      const panels = assignReadingOrder(fx.panels);
+      expect(orderedIds(panels)).toEqual(fx.expectedOrder);
     };
 
     if (fx.knownFailing) {

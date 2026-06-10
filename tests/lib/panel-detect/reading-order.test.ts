@@ -29,7 +29,7 @@ const fixtures = loadFixtures();
 describe('assignReadingOrder — labelled fixtures', () => {
   for (const { name, fixture } of fixtures) {
     it(`${name}: ${fixture.note}`, () => {
-      const { panels } = assignReadingOrder(fixture.input);
+      const panels = assignReadingOrder(fixture.input);
       const order = [...panels].sort((a, b) => a.readingOrder - b.readingOrder).map((p) => p.id);
       expect(order).toEqual(fixture.expected);
     });
@@ -37,9 +37,9 @@ describe('assignReadingOrder — labelled fixtures', () => {
 });
 
 describe('assignReadingOrder — golden snapshot', () => {
-  // Captures today's exact output (panels + reading tree) for every fixture.
-  // The snapshot flags *change*, not *correctness*: it is the safety net for
-  // the PanelDetectConfig extraction in §1, which must not perturb behaviour.
+  // Captures today's exact output (ordered panels) for every fixture.
+  // The snapshot flags *change*, not *correctness*: any algorithm change must
+  // re-record deliberately with a stated justification.
   for (const { name, fixture } of fixtures) {
     it(`${name} output is stable`, () => {
       const result = assignReadingOrder(fixture.input);
@@ -79,30 +79,19 @@ function randomLayout(rng: () => number): RawPanel[] {
 }
 
 describe('assignReadingOrder — structural invariants', () => {
-  function collectTreePanelIds(node: ReturnType<typeof assignReadingOrder>['readingTree']): string[] {
-    if (!node) return [];
-    if ('panel' in node) return [node.panel];
-    return [
-      ...collectTreePanelIds(node.top ?? null),
-      ...collectTreePanelIds(node.bottom ?? null),
-      ...collectTreePanelIds(node.left ?? null),
-      ...collectTreePanelIds(node.right ?? null),
-    ];
-  }
-
   const rng = mulberry32(0x5eed);
   const layouts = Array.from({ length: 200 }, () => randomLayout(rng));
 
   it('output length equals input length for every layout', () => {
     for (const layout of layouts) {
-      const { panels } = assignReadingOrder(layout);
+      const panels = assignReadingOrder(layout);
       expect(panels.length).toBe(layout.length);
     }
   });
 
   it('every input id appears exactly once', () => {
     for (const layout of layouts) {
-      const { panels } = assignReadingOrder(layout);
+      const panels = assignReadingOrder(layout);
       const ids = panels.map((p) => p.id).sort();
       const expectedIds = layout.map((_, i) => `p${i + 1}`).sort();
       expect(ids).toEqual(expectedIds);
@@ -111,18 +100,9 @@ describe('assignReadingOrder — structural invariants', () => {
 
   it('readingOrder is a contiguous 1..N permutation', () => {
     for (const layout of layouts) {
-      const { panels } = assignReadingOrder(layout);
+      const panels = assignReadingOrder(layout);
       const orders = panels.map((p) => p.readingOrder).sort((a, b) => a - b);
       expect(orders).toEqual(Array.from({ length: layout.length }, (_, i) => i + 1));
-    }
-  });
-
-  it('the reading tree references exactly the returned panel ids', () => {
-    for (const layout of layouts) {
-      const { panels, readingTree } = assignReadingOrder(layout);
-      const treeIds = collectTreePanelIds(readingTree).sort();
-      const panelIds = panels.map((p) => p.id).sort();
-      expect(treeIds).toEqual(panelIds);
     }
   });
 });

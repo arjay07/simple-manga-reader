@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     const threshold = typeof confidenceThreshold === 'number' ? confidenceThreshold : 0.25;
     const rawPanels = await getDetector(detectorName).detect(imageBuffer, { confidence: threshold });
     const pageType = classifyPageType(rawPanels);
-    const { panels, readingTree } = assignReadingOrder(rawPanels);
+    const panels = assignReadingOrder(rawPanels);
     const processingTimeMs = Date.now() - start;
 
     const metadata = await sharp(imageBuffer).metadata();
@@ -85,7 +85,6 @@ export async function POST(req: NextRequest) {
       results: {
         [detectorName]: {
           panels,
-          readingTree,
           pageType,
           processingTimeMs,
           method: detectorName,
