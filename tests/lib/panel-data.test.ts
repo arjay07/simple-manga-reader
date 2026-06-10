@@ -17,32 +17,32 @@ const VALID_PANELS: Panel[] = [
 
 describe('insertPanelData validation guards', () => {
   it('rejects a non-positive volumeId', () => {
-    expect(() => insertPanelData(0, 1, VALID_PANELS, null, 'panels', 1, 0.25)).toThrow(
+    expect(() => insertPanelData(0, 1, VALID_PANELS, 'panels', 1, 0.25)).toThrow(
       /volume_id/,
     );
   });
 
   it('rejects a non-integer volumeId', () => {
-    expect(() => insertPanelData(1.5, 1, VALID_PANELS, null, 'panels', 1, 0.25)).toThrow(
+    expect(() => insertPanelData(1.5, 1, VALID_PANELS, 'panels', 1, 0.25)).toThrow(
       /volume_id/,
     );
   });
 
   it('rejects a non-positive pageNumber', () => {
-    expect(() => insertPanelData(1, 0, VALID_PANELS, null, 'panels', 1, 0.25)).toThrow(
+    expect(() => insertPanelData(1, 0, VALID_PANELS, 'panels', 1, 0.25)).toThrow(
       /page_number/,
     );
   });
 
   it('rejects a non-integer pageNumber', () => {
-    expect(() => insertPanelData(1, 2.5, VALID_PANELS, null, 'panels', 1, 0.25)).toThrow(
+    expect(() => insertPanelData(1, 2.5, VALID_PANELS, 'panels', 1, 0.25)).toThrow(
       /page_number/,
     );
   });
 
   it('rejects panels that are not an array', () => {
     // @ts-expect-error -- intentionally passing the wrong type to exercise the guard
-    expect(() => insertPanelData(1, 1, 'not-an-array', null, 'panels', 1, 0.25)).toThrow(
+    expect(() => insertPanelData(1, 1, 'not-an-array', 'panels', 1, 0.25)).toThrow(
       /panels must be an array/,
     );
   });

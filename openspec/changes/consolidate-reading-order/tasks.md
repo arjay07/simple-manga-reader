@@ -2,13 +2,13 @@
 
 ## 1. Remove the reading tree (no ordering change — D1, D5 step 1)
 
-- [ ] 1.1 `reading-order.ts`: change `assignReadingOrder` to return `Panel[]` directly; delete the `OrderResult` interface; `xyCut` recurses for ordering only (append ids to `out`, return nothing); delete `chainTree`; `inseparable` just emits its sorted ids
-- [ ] 1.2 `types.ts`: delete `ReadingTreeLeaf`, `ReadingTreeBranch`, `ReadingTreeNode`; remove `readingTree` from `DetectionResult`
-- [ ] 1.3 `panel-data.ts`: remove the `readingTree` parameter from `insertPanelData` (write `NULL` to `reading_tree_json`); remove `readingTree` from `PanelDataPage`; `rowToPage` returns panels only
-- [ ] 1.4 Update `assignReadingOrder` call sites to the new return shape: `job-manager.ts`, `src/app/api/panel-detect/route.ts`, `panel-data.ts` (`rowToPage`)
-- [ ] 1.5 `src/app/admin/panel-jobs/page.tsx`: drop `readingTree` from `PreviewData` and the `DetectionCanvas` result literal
-- [ ] 1.6 Tests: delete the tree property test (`the reading tree references exactly the returned panel ids`) and `collectTreePanelIds`; update any test destructuring `{ panels }` from the old shape; re-record golden snapshots (justification: tree removal — panel order must be byte-identical in the diff)
-- [ ] 1.7 Verify: `npm test`, `npm run build`, `npm run lint` all green; labelled and real-page regression fixtures unchanged
+- [x] 1.1 `reading-order.ts`: change `assignReadingOrder` to return `Panel[]` directly; delete the `OrderResult` interface; `xyCut` recurses for ordering only (append ids to `out`, return nothing); delete `chainTree`; `inseparable` just emits its sorted ids
+- [x] 1.2 `types.ts`: delete `ReadingTreeLeaf`, `ReadingTreeBranch`, `ReadingTreeNode`; remove `readingTree` from `DetectionResult`
+- [x] 1.3 `panel-data.ts`: remove the `readingTree` parameter from `insertPanelData` (write `NULL` to `reading_tree_json`); remove `readingTree` from `PanelDataPage`; `rowToPage` returns panels only
+- [x] 1.4 Update `assignReadingOrder` call sites to the new return shape: `job-manager.ts`, `src/app/api/panel-detect/route.ts`, `panel-data.ts` (`rowToPage`)
+- [x] 1.5 `src/app/admin/panel-jobs/page.tsx`: drop `readingTree` from `PreviewData` and the `DetectionCanvas` result literal
+- [x] 1.6 Tests: delete the tree property test (`the reading tree references exactly the returned panel ids`) and `collectTreePanelIds`; update any test destructuring `{ panels }` from the old shape; re-record golden snapshots (justification: tree removal — panel order must be byte-identical in the diff)
+- [x] 1.7 Verify: `npm test`, `npm run build`, `npm run lint` all green; labelled and real-page regression fixtures unchanged
 
 ## 2. Permutation-invariant ordering (D2, D3, D5 step 2)
 

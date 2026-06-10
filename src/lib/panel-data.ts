@@ -1,6 +1,6 @@
 import { getDb } from './db';
 import { assignReadingOrder } from './panel-detect/reading-order';
-import type { Panel, RawPanel, ReadingTreeNode, PageType } from './panel-detect/types';
+import type { Panel, RawPanel, PageType } from './panel-detect/types';
 
 export interface PanelDataRow {
   id: number;
@@ -17,7 +17,6 @@ export interface PanelDataRow {
 export interface PanelDataPage {
   pageNumber: number;
   panels: Panel[];
-  readingTree: ReadingTreeNode | null;
   pageType: PageType;
   processingTimeMs: number | null;
 }
@@ -32,7 +31,6 @@ export function insertPanelData(
   volumeId: number,
   pageNumber: number,
   panels: Panel[],
-  readingTree: ReadingTreeNode | null,
   pageType: PageType,
   processingTimeMs: number,
   confidenceThreshold: number,
@@ -47,19 +45,13 @@ export function insertPanelData(
     throw new Error('insertPanelData: panels must be an array');
   }
   const db = getDb();
+  // reading_tree_json is a legacy column: no longer read anywhere, written as
+  // NULL so previously stored values fade out via the REPLACE.
   db.prepare(
     `INSERT OR REPLACE INTO panel_data
      (volume_id, page_number, panels_json, reading_tree_json, page_type, processing_time_ms, confidence_threshold)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    volumeId,
-    pageNumber,
-    JSON.stringify(panels),
-    readingTree ? JSON.stringify(readingTree) : null,
-    pageType,
-    processingTimeMs,
-    confidenceThreshold,
-  );
+     VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+  ).run(volumeId, pageNumber, JSON.stringify(panels), pageType, processingTimeMs, confidenceThreshold);
 }
 
 /**
@@ -67,18 +59,15 @@ export function insertPanelData(
  * time. The geometry in `panels_json` *is* the `RawPanel[]` the ordering stage
  * consumed at detection time (`assignReadingOrder` only adds `id`/`readingOrder`
  * and never touches geometry), so we re-run ordering over it here and return the
- * freshly-ordered panels + reading tree. The stored `readingOrder` /
- * `reading_tree_json` are a non-authoritative snapshot and are ignored on read —
- * an ordering-algorithm change thus reaches every stored row on its next read,
- * with no re-detection and no rewrite.
+ * freshly-ordered panels. The stored `readingOrder` is a non-authoritative
+ * snapshot and is ignored on read — an ordering-algorithm change thus reaches
+ * every stored row on its next read, with no re-detection and no rewrite.
  */
 function rowToPage(row: PanelDataRow): PanelDataPage {
   const rawPanels = JSON.parse(row.panels_json) as RawPanel[];
-  const { panels, readingTree } = assignReadingOrder(rawPanels);
   return {
     pageNumber: row.page_number,
-    panels,
-    readingTree,
+    panels: assignReadingOrder(rawPanels),
     pageType: row.page_type as PageType,
     processingTimeMs: row.processing_time_ms,
   };

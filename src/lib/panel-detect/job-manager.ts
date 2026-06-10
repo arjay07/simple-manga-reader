@@ -229,14 +229,13 @@ class JobManager {
             confidence: this.confidenceThreshold,
           });
           const pageType = classifyPageType(rawPanels);
-          const { panels, readingTree } = assignReadingOrder(rawPanels);
+          const panels = assignReadingOrder(rawPanels);
           const processingTimeMs = Date.now() - start;
 
           insertPanelData(
             this.volumeId,
             page,
             panels,
-            readingTree,
             pageType,
             processingTimeMs,
             this.confidenceThreshold,

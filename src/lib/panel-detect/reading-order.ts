@@ -1,4 +1,4 @@
-import type { RawPanel, Panel, ReadingTreeNode } from './types';
+import type { RawPanel, Panel } from './types';
 import {
   type PanelDetectConfig,
   type ReadingOrderConfig,
@@ -7,11 +7,6 @@ import {
 
 interface PanelWithId extends RawPanel {
   id: string;
-}
-
-interface OrderResult {
-  panels: Panel[];
-  readingTree: ReadingTreeNode | null;
 }
 
 /**
@@ -49,17 +44,14 @@ interface OrderResult {
  * a single row with panels it doesn't actually sit beside. This is what fixes
  * the 3-column "tall middle panel" layout (right column top-to-bottom, then the
  * tall middle, then the left column top-to-bottom).
- *
- * The recursion also IS the reading tree — the same vertical/horizontal cuts are
- * the {@link ReadingTreeNode} branches, so order and tree never disagree.
  */
 export function assignReadingOrder(
   rawPanels: RawPanel[],
   config: PanelDetectConfig = DEFAULT_PANEL_DETECT_CONFIG,
-): OrderResult {
+): Panel[] {
   const ro = config.readingOrder;
   if (rawPanels.length === 0) {
-    return { panels: [], readingTree: null };
+    return [];
   }
 
   const panels: PanelWithId[] = rawPanels.map((p, i) => ({
@@ -68,14 +60,12 @@ export function assignReadingOrder(
   }));
 
   const orderedIds: string[] = [];
-  const tree = xyCut(panels, ro, orderedIds);
+  xyCut(panels, ro, orderedIds);
 
   const orderById = new Map(orderedIds.map((id, i) => [id, i + 1]));
-  const result: Panel[] = panels
+  return panels
     .map((p) => ({ ...p, readingOrder: orderById.get(p.id)! }))
     .sort((a, b) => a.readingOrder - b.readingOrder);
-
-  return { panels: result, readingTree: tree };
 }
 
 type Axis = 'x' | 'y';
@@ -103,12 +93,12 @@ interface Cut {
 
 /**
  * Recursively cut a group of panels and append leaf ids to `out` in reading
- * order, returning the reading tree for the group.
+ * order.
  */
-function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): ReadingTreeNode {
+function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): void {
   if (panels.length === 1) {
     out.push(panels[0].id);
-    return { panel: panels[0].id };
+    return;
   }
 
   // Tall right-hand column exception: a clean vertical cut that isolates a
@@ -121,27 +111,21 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): Re
   // Prefer the least-straddle horizontal cut: manga reads row by row, top first.
   const h = columnFirst ? null : bestValidCut(panels, 'y', ro.maxStraddleRatio);
   if (h) {
-    return {
-      cut: 'horizontal',
-      at: h.at,
-      top: xyCut(h.first, ro, out),
-      bottom: xyCut(h.second, ro, out),
-    };
+    xyCut(h.first, ro, out);
+    xyCut(h.second, ro, out);
+    return;
   }
 
   // Otherwise the least-straddle vertical cut: RTL, right group first.
   if (v) {
-    return {
-      cut: 'vertical',
-      at: v.at,
-      right: xyCut(v.second, ro, out),
-      left: xyCut(v.first, ro, out),
-    };
+    xyCut(v.second, ro, out);
+    xyCut(v.first, ro, out);
+    return;
   }
 
   // Genuinely inseparable region (mutual overlap, no dominant axis): order by
   // the vertical-overlap row rule so the recursion still terminates.
-  return inseparable(panels, ro, out);
+  inseparable(panels, ro, out);
 }
 
 /**
@@ -283,11 +267,7 @@ function isRow(a: PanelWithId, b: PanelWithId, ro: ReadingOrderConfig): boolean 
  * pages: a diagonal divider's X overlap marked a true row as stacked, and a
  * clean X split marked a diagonally offset stacked pair as a row.
  */
-function inseparable(
-  panels: PanelWithId[],
-  ro: ReadingOrderConfig,
-  out: string[],
-): ReadingTreeNode {
+function inseparable(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): void {
   const items: Centroid[] = panels.map((p) => ({
     p,
     cx: p.x + p.width / 2,
@@ -295,26 +275,4 @@ function inseparable(
   }));
   const sorted = [...items].sort((a, b) => (isRow(a.p, b.p, ro) ? b.cx - a.cx : a.cy - b.cy));
   for (const item of sorted) out.push(item.p.id);
-  return chainTree(sorted, ro);
-}
-
-/** Right/down-leaning tree mirroring the comparator (cosmetic; order is authoritative). */
-function chainTree(items: Centroid[], ro: ReadingOrderConfig): ReadingTreeNode {
-  if (items.length === 1) return { panel: items[0].p.id };
-  const [first, second, ...tail] = items;
-  const rest = chainTree([second, ...tail], ro);
-  if (isRow(first.p, second.p, ro)) {
-    return {
-      cut: 'vertical',
-      at: (first.cx + second.cx) / 2,
-      right: { panel: first.p.id },
-      left: rest,
-    };
-  }
-  return {
-    cut: 'horizontal',
-    at: (first.cy + second.cy) / 2,
-    top: { panel: first.p.id },
-    bottom: rest,
-  };
 }
