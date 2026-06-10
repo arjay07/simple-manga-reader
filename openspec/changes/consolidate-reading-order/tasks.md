@@ -12,11 +12,11 @@
 
 ## 2. Permutation-invariant ordering (D2, D3, D5 step 2)
 
-- [ ] 2.1 `reading-order.ts`: replace `inseparable`'s pairwise sort with row clustering — union-find over `isRow` pairs, clusters ordered by ascending mean center-Y (tie: descending mean center-X), panels within a cluster by descending center-X (tie: ascending center-Y); update the function's doc comment to describe clustering
-- [ ] 2.2 `reading-order.ts`: in `bestValidCut`, add a final geometric tie-break — when `maxClipped` and `gap` both tie within `EPS`, prefer the smaller `at`; update the doc comment ("first candidate encountered" no longer applies)
-- [ ] 2.3 Add a labelled fixture: 3+ panel mixed row/stack inseparable region (a slanted row pair plus a stacked third panel, mutually overlapping so no valid cut exists) with a hand-verified RTL `expected` order
-- [ ] 2.4 Re-record golden snapshots that change (justification: previously input-order-dependent outputs now canonical); confirm labelled and real-page regression fixtures still pass — if a real-page fixture flips, hand-verify the new order against the page image before updating it
-- [ ] 2.5 Verify: `npm test` green
+- [x] 2.1 `reading-order.ts`: replace `inseparable`'s pairwise sort with tournament source selection over the reads-before relation — emit the panel no remaining panel reads before; on a cycle, fewest losses with geometric tie-breaks (asc center-Y, desc center-X, smaller height/width); update the function's doc comment. (Design pivot from the original union-find row clustering: `isRow` is non-transitive on real pages — transitive closure over-merged the verified `019.png` fixture; the tournament reproduces it.)
+- [x] 2.2 `reading-order.ts`: in `bestValidCut`, add a final geometric tie-break — when `maxClipped` and `gap` both tie within `EPS`, prefer the smaller `at`; update the doc comment ("first candidate encountered" no longer applies)
+- [x] 2.3 Add a labelled fixture: 3+ panel mixed row/stack inseparable region (a slanted row pair plus a stacked third panel, mutually overlapping so no valid cut exists) with a hand-verified RTL `expected` order
+- [x] 2.4 Re-record golden snapshots that change (justification: previously input-order-dependent outputs now canonical); confirm labelled and real-page regression fixtures still pass — if a real-page fixture flips, hand-verify the new order against the page image before updating it
+- [x] 2.5 Verify: `npm test` green
 
 ## 3. Permutation-invariance property test (D4)
 
@@ -32,4 +32,4 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Update `CLAUDE.md` panel-detection section: remove mentions of `reading_tree_json` / reading-tree snapshot semantics; note ordering is permutation-invariant and the inseparable fallback uses row clustering
+- [ ] 5.1 Update `CLAUDE.md` panel-detection section: remove mentions of `reading_tree_json` / reading-tree snapshot semantics; note ordering is permutation-invariant and the inseparable fallback uses tournament source selection

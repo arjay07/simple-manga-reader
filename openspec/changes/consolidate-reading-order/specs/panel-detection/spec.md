@@ -52,7 +52,7 @@ The system SHALL compute reading order for detected panels using a recursive spa
 #### Scenario: Genuinely inseparable region
 
 - **WHEN** no horizontal or vertical cut can place at least one panel on each side without straddling some panel by more than `maxStraddleRatio`
-- **THEN** the algorithm SHALL cluster the overlapping panels into rows via the transitive closure of the pairwise row relation (two panels are a row when they overlap in Y for most of the shorter panel's height and the majority of the right panel's width extends past the left panel's right edge), order the clusters top-to-bottom by mean vertical center, and order panels within each cluster right-to-left — guaranteeing termination and an order independent of input sequence
+- **THEN** the algorithm SHALL order the overlapping panels by repeated source selection over the pairwise reads-before relation (a row pair — panels overlapping in Y for most of the shorter panel's height with the majority of the right panel's width past the left panel's right edge — reads right-to-left; any other pair reads top-first), emitting at each step the panel that no remaining panel reads before; when a cycle leaves no such panel, the panel with the fewest reads-before losses SHALL be emitted, tie-broken by geometry alone — guaranteeing termination and an order independent of input sequence
 
 #### Scenario: Reading order is permutation-invariant
 

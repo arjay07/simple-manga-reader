@@ -7,7 +7,7 @@ The reading-order pipeline carries two kinds of dead weight. First, the `reading
 ## What Changes
 
 - **Remove the reading tree end-to-end** — **BREAKING** (API response shape): delete `ReadingTreeNode`/`ReadingTreeLeaf`/`ReadingTreeBranch` types, tree assembly in `xyCut`, the cosmetic `chainTree` helper, the `readingTree` field from `assignReadingOrder`'s result, `DetectionResult`, `PanelDataPage`, and all panel-data/panel-detect API responses, and the `reading_tree_json` write in `insertPanelData`. The DB column remains (nullable, unwritten) — no migration. Stored geometry stays the source of truth, so a future tree feature can reintroduce assembly with zero data impact.
-- **Make ordering permutation-invariant**: replace the inseparable fallback's non-transitive `Array.sort` comparator with row clustering — group panels via the transitive closure of the existing `isRow` relation, order clusters top-to-bottom, order panels within a cluster right-to-left. Change `bestValidCut`'s final tie-break from "first candidate in input order" to a geometric key. Output reading order becomes a pure function of geometry alone.
+- **Make ordering permutation-invariant**: replace the inseparable fallback's non-transitive `Array.sort` comparator with tournament source selection — keep the existing pairwise reads-before rule (`isRow` → RTL, else top-first) but repeatedly emit the panel no remaining panel reads before, with a fewest-losses + geometric tie-break for cycles. Change `bestValidCut`'s final tie-break from "first candidate in input order" to a geometric key. Output reading order becomes a pure function of geometry alone.
 - **Edge cleanups**: drop `reading_tree_json` from the panel-data SELECTs, align the `PanelDataRow` type with the columns actually selected, share the duplicated SELECT column list, and have `MangaReader.tsx` import the canonical `PanelDataPage` type instead of redefining it locally.
 - **New durable test**: a structural-invariant property test asserting that every permutation of the input panels yields the identical geometric reading sequence.
 
@@ -19,7 +19,7 @@ The reading-order pipeline carries two kinds of dead weight. First, the `reading
 
 ### Modified Capabilities
 
-- `panel-detection`: Remove the "Reading tree output" requirement. The "Ordering is a separate stage" and "RTL reading order via recursive spatial partitioning" requirements drop the reading tree from their outputs; the inseparable-region scenario changes from a per-pair sort rule to row clustering; a new permutation-invariance scenario is added; the test-pinning requirement's structural invariants replace the tree invariant with the permutation invariant.
+- `panel-detection`: Remove the "Reading tree output" requirement. The "Ordering is a separate stage" and "RTL reading order via recursive spatial partitioning" requirements drop the reading tree from their outputs; the inseparable-region scenario changes from a per-pair sort rule to tournament source selection over the pairwise reads-before relation; a new permutation-invariance scenario is added; the test-pinning requirement's structural invariants replace the tree invariant with the permutation invariant.
 - `panel-data-storage`: `reading_tree_json` becomes a legacy unwritten column; API responses no longer include `readingTree`; the "Reading order is derived at read time" requirement covers order only, not the tree.
 
 ## Impact

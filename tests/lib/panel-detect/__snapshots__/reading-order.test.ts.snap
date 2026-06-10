@@ -146,6 +146,38 @@ exports[`assignReadingOrder — golden snapshot > full-width-strip-vs-side outpu
 ]
 `;
 
+exports[`assignReadingOrder — golden snapshot > inseparable-row-plus-stack output is stable 1`] = `
+[
+  {
+    "confidence": 0.95,
+    "height": 0.55,
+    "id": "p1",
+    "readingOrder": 1,
+    "width": 0.55,
+    "x": 0.45,
+    "y": 0,
+  },
+  {
+    "confidence": 0.95,
+    "height": 0.55,
+    "id": "p2",
+    "readingOrder": 2,
+    "width": 0.55,
+    "x": 0,
+    "y": 0.05,
+  },
+  {
+    "confidence": 0.95,
+    "height": 0.65,
+    "id": "p3",
+    "readingOrder": 3,
+    "width": 1,
+    "x": 0,
+    "y": 0.35,
+  },
+]
+`;
+
 exports[`assignReadingOrder — golden snapshot > short-anchor-taller-neighbor output is stable 1`] = `
 [
   {

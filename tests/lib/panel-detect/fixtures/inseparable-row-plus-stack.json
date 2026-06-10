@@ -1,0 +1,9 @@
+{
+  "note": "Inseparable mixed row/stack region: a slanted top row (p1 top-right, p2 top-left, boxes overlapping in X via the diagonal divider) over a full-width bottom panel p3 whose slanted top edge overlaps both in Y. Every candidate cut clips some panel past maxStraddleRatio on both axes, so the tournament fallback decides: p1/p2 are a row pair (Y-overlap 0.91 of the shorter panel) so p1 reads before p2 (RTL); p3 is stacked below both. Source selection emits p1, p2, p3. Exercises the 3+ panel inseparable path where a non-transitive pairwise comparator could give input-order-dependent results.",
+  "input": [
+    { "x": 0.45, "y": 0.0, "width": 0.55, "height": 0.55, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.05, "width": 0.55, "height": 0.55, "confidence": 0.95 },
+    { "x": 0.0, "y": 0.35, "width": 1.0, "height": 0.65, "confidence": 0.95 }
+  ],
+  "expected": ["p1", "p2", "p3"]
+}

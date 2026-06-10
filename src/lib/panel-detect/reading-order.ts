@@ -27,9 +27,10 @@ interface PanelWithId extends RawPanel {
  *      the RIGHT of the cut is read entirely before the group to the left.
  *   4. If no valid cut exists on either axis (genuinely overlapping boxes —
  *      e.g. a slanted row whose diagonal divider makes the boxes overlap both
- *      axes), fall back to a per-pair rule keyed on vertical overlap (see
- *      {@link inseparable} / {@link isRow}): a slanted row stays together and
- *      reads right-to-left, while offset/tucked pairs read top-first.
+ *      axes), fall back to tournament source selection over the pairwise
+ *      reads-before relation (see {@link inseparable} / {@link isRow}): a
+ *      slanted row stays together and reads right-to-left, while offset/tucked
+ *      pairs read top-first.
  *
  * A candidate cut is scored by how much it straddles panels, measured *relative
  * to each panel's own extent* on the cut axis (see {@link bestValidCut}): a cut
@@ -124,7 +125,8 @@ function xyCut(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): vo
   }
 
   // Genuinely inseparable region (mutual overlap, no dominant axis): order by
-  // the vertical-overlap row rule so the recursion still terminates.
+  // tournament source selection over the pairwise reads-before relation so the
+  // recursion still terminates with a permutation-invariant order.
   inseparable(panels, ro, out);
 }
 
@@ -196,8 +198,9 @@ function evaluateCut(panels: PanelWithId[], axis: Axis, p: number): Cut {
  * panel by more than `maxStraddleRatio` of that panel's own extent. Among the
  * valid cuts it returns the one with the smallest `maxClipped` (a perfectly
  * clean gutter, `maxClipped == 0`, always wins), breaking ties in favour of the
- * wider gutter and, failing that, the first candidate encountered (input order)
- * so the result is deterministic.
+ * wider gutter and, failing that, the geometrically earlier cut position
+ * (smaller `at`) — never input order, so the choice is a function of geometry
+ * alone.
  */
 function bestValidCut(panels: PanelWithId[], axis: Axis, maxStraddleRatio: number): Cut | null {
   let best: Cut | null = null;
@@ -209,19 +212,15 @@ function bestValidCut(panels: PanelWithId[], axis: Axis, maxStraddleRatio: numbe
     if (
       best === null ||
       cut.maxClipped < best.maxClipped - EPS ||
-      (Math.abs(cut.maxClipped - best.maxClipped) <= EPS && cut.gap > best.gap + EPS)
+      (Math.abs(cut.maxClipped - best.maxClipped) <= EPS &&
+        (cut.gap > best.gap + EPS ||
+          (Math.abs(cut.gap - best.gap) <= EPS && cut.at < best.at - EPS)))
     ) {
       best = cut;
     }
   }
 
   return best;
-}
-
-interface Centroid {
-  p: PanelWithId;
-  cx: number;
-  cy: number;
 }
 
 /**
@@ -248,31 +247,72 @@ function isRow(a: PanelWithId, b: PanelWithId, ro: ReadingOrderConfig): boolean 
   return xOverlap < 0.5 * right.width;
 }
 
+const cx = (p: RawPanel): number => p.x + p.width / 2;
+const cy = (p: RawPanel): number => p.y + p.height / 2;
+
 /**
  * Terminal for a region no axis-aligned cut can cleanly separate — e.g. a
  * full-width panel whose box overlaps the row below because of a slanted edge,
  * which clips a neighbour just past the straddle budget and defeats the cut
  * search on both axes.
  *
- * Order the panels with a pairwise rule that keys on **vertical overlap**, the
- * signal that survives the overlap which defeated the cut search:
- *   - panels that overlap in Y for most of the shorter one's height are a row
- *     → right-to-left, the rightmost (larger centroid-X) first;
- *   - otherwise they are stacked → the higher one (smaller centroid-Y) reads
+ * Every pair gets a reads-before direction from the rule that survives the
+ * overlap which defeated the cut search:
+ *   - a row pair (see {@link isRow}) reads right-to-left — the larger centre-X
+ *     first;
+ *   - otherwise the pair is stacked and reads top-first — the smaller centre-Y
  *     first, which also reads a diagonally offset pair top-left first.
  *
- * Centroid-Y alone cannot distinguish a slanted row (small Y spread, must read
- * RTL) from a stacked pair (similar small Y spread, must read top-first); the
- * Y-overlap test does. An earlier X-overlap rule failed both ways on slanted
- * pages: a diagonal divider's X overlap marked a true row as stacked, and a
- * clean X split marked a diagonally offset stacked pair as a row.
+ * That relation is a tournament but NOT a total order — `isRow` is not
+ * transitive (a tall panel can be "in a row with" each of several tiers that
+ * are stacked relative to one another), so feeding it straight into
+ * `Array.sort` hands the outcome to whichever comparisons the sort algorithm
+ * happens to make, i.e. to input order. Instead we emit panels by repeated
+ * source selection: take the panel that loses to no remaining panel. When the
+ * tournament is acyclic that source is unique at every step, so the order is
+ * the unique total order consistent with ALL pairwise comparisons —
+ * permutation-invariant by construction. A cycle (rotational pinwheel) has no
+ * source; then the fewest-losses panel wins, with geometric tie-breaks
+ * (higher, then more right, then smaller) so the choice is still a function of
+ * geometry alone.
  */
 function inseparable(panels: PanelWithId[], ro: ReadingOrderConfig, out: string[]): void {
-  const items: Centroid[] = panels.map((p) => ({
-    p,
-    cx: p.x + p.width / 2,
-    cy: p.y + p.height / 2,
-  }));
-  const sorted = [...items].sort((a, b) => (isRow(a.p, b.p, ro) ? b.cx - a.cx : a.cy - b.cy));
-  for (const item of sorted) out.push(item.p.id);
+  const before = (a: PanelWithId, b: PanelWithId): boolean =>
+    isRow(a, b, ro) ? cx(a) > cx(b) : cy(a) < cy(b);
+
+  // Selection key: fewest losses first, then higher / more-right / smaller
+  // geometry. If every component ties the boxes are identical and either
+  // order yields the same geometric sequence.
+  const key = (losses: number, p: PanelWithId): number[] => [
+    losses,
+    cy(p),
+    -cx(p),
+    p.height,
+    p.width,
+  ];
+  const keyLess = (a: number[], b: number[]): boolean => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return a[i] < b[i];
+    }
+    return false;
+  };
+
+  const remaining = [...panels];
+  while (remaining.length > 0) {
+    let pick = remaining[0];
+    let pickKey: number[] | null = null;
+    for (const cand of remaining) {
+      let losses = 0;
+      for (const other of remaining) {
+        if (other !== cand && before(other, cand)) losses++;
+      }
+      const candKey = key(losses, cand);
+      if (pickKey === null || keyLess(candKey, pickKey)) {
+        pick = cand;
+        pickKey = candKey;
+      }
+    }
+    out.push(pick.id);
+    remaining.splice(remaining.indexOf(pick), 1);
+  }
 }
