@@ -32,19 +32,20 @@ Constraints: stored panel geometry remains the source of truth; order remains de
 
 *Why:* every consumer was checked — none reads the tree; it costs serialization on every read of every page, an API field, spec surface, and a property test. *Why not keep emitting it cheaply:* `chainTree` exists *only* to fabricate a tree for the fallback path, and the "tree references exactly the panel ids" invariant forces maintenance on every algorithm change. *Reversibility:* geometry is stored and order is derived at read time, so reintroducing tree assembly later reaches all existing volumes instantly — deleting now closes no doors. *Alternative rejected:* dropping the DB column too — a migration buys nothing; `INSERT OR REPLACE` with `NULL` naturally fades old values.
 
-### D2 — Row clustering replaces the pairwise sort in `inseparable()`
+### D2 — Tournament source selection replaces the pairwise sort in `inseparable()`
 
-Replace the non-transitive comparator with a three-step deterministic construction:
+Keep the pairwise reads-before relation the old comparator encoded — `isRow(a, b)` → larger center-X first, else smaller center-Y first — but consume it as a *tournament* instead of feeding it to `Array.sort`:
 
 ```
-cluster:  union-find over all pairs (a, b) where isRow(a, b, ro)   // transitive closure
-order clusters:   ascending mean center-Y of the cluster's panels
-order within:     descending center-X (right-to-left)
+repeat until empty:
+  emit the panel that loses to no remaining panel (the tournament source)
+  cycle fallback (no source): fewest losses, tie-broken by
+    ascending center-Y, descending center-X, smaller height, smaller width
 ```
 
-`isRow` itself is unchanged — same two conditions, same `rowOverlapMinRatio` threshold. The change is only *how* the relation is consumed: as an equivalence-closure for grouping instead of as a sort comparator.
+`isRow` itself is unchanged — same two conditions, same `rowOverlapMinRatio` threshold. The change is only *how* the relation is consumed: repeated source selection over all pairwise comparisons instead of whichever subset TimSort happens to evaluate.
 
-*Why:* this is the mental model the existing comments already describe ("panels that overlap in Y … are a row → right-to-left; otherwise stacked → higher first"), implemented in a way that is a total order by construction — permutation-invariant regardless of how panels arrive. *Behaviour preserved:* for 2-panel regions (all current verified fixtures) the result is identical — one cluster (row, RTL) or two clusters (stacked, top first) exactly matches the old comparator. Divergence is possible only for 3+ panel inseparable regions with mixed row/stack relations, where the old output was sort-order-dependent and therefore not meaningful to preserve. *Alternative rejected — full pairwise topological sort:* handles rotational pinwheels "correctly" but needs cycle-breaking (pinwheels are cyclic under any pairwise rule), and pinwheels remain unreported in the library; row clustering is strictly simpler and deterministic. *Tie within equal mean-Y or equal center-X:* fall through to the other coordinate (mean-X descending / center-Y ascending) so the construction stays total even for degenerate geometry.
+*Why:* when the tournament is acyclic, the source is unique at every step, so the result is the unique total order consistent with **all** pairwise comparisons — permutation-invariant by construction, and it preserves every 2-panel case (all prior verified fixtures) exactly. *Why not transitive-closure row clustering (the first draft of this decision):* `isRow` is genuinely non-transitive on real pages — in the human-verified `019.png` fixture a tall right column Y-overlaps three tiers that are stacked relative to each other, so the closure merges panels that must read in different rows, and the cluster's internal descending-center-X order contradicts the verified order (`p2` jumped ahead of `p6`). Clustering over-merges precisely where the relation stops being an equivalence; the tournament uses each pairwise verdict directly and reproduces the verified order. *Cycles:* a rotational pinwheel is cyclic under any pairwise rule; the fewest-losses + geometric tie-break fallback keeps the choice a function of geometry alone (pinwheels remain unreported in the library).
 
 ### D3 — Geometric tie-break in `bestValidCut`
 
@@ -71,7 +72,7 @@ Implement and snapshot-re-record in two steps: (1) tree deletion — order uncha
 - **[API shape change]** `readingTree` disappears from panel-data/panel-detect responses → the only consumer is this app's own UI, verified to never read the field; specs updated in the same change.
 - **[D2 changes order on some real pages]** Any library page with a 3+ panel inseparable region may read differently → the old order there was input-order-dependent (effectively arbitrary); real-page regression fixtures are the canary — if one flips, the new order is hand-verified against the actual page before re-recording.
 - **[Stale `reading_tree_json` values linger in existing rows]** → harmless: no code reads the column; rows fade to `NULL` on re-detection via `INSERT OR REPLACE`.
-- **[Union-find adds code where a sort call sat]** → ~20 lines for a dozen-panel input; trivial n² pair scan is fine and far clearer than a comparator that lies about being a total order.
+- **[Tournament selection adds code where a sort call sat]** → ~30 lines, O(n³) worst case for an n-panel inseparable region — fine for the dozen-panel pages this path sees, and far clearer than a comparator that lies about being a total order.
 - **[Future feature wants the tree back]** → re-add tree assembly in `xyCut` behind the same recursion; derived-at-read-time means it instantly covers all stored volumes.
 
 ## Migration Plan
